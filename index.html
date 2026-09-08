@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>p5 Peaks Control</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #fff;
+      color: #000;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: row;
+    }
+
+    #canvas-container {
+      width: 460px;
+      height: 460px;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #controls {
+      width: 466px;
+      padding-top: 20px;
+    }
+
+    .global-row,
+    .peak-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 55px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .count-row {
+      display: grid;
+      grid-template-columns: 90px 80px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+
+    .peak-group {
+      border-top: 1px solid #ddd;
+      margin-top: 14px;
+      padding-top: 12px;
+    }
+
+    .peak-title {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      margin: 0;
+    }
+
+    input[type="number"] {
+      width: 70px;
+      height: 26px;
+      padding: 2px 5px;
+      border: 1px solid #aaa;
+      background: white;
+      color: black;
+      font: inherit;
+    }
+
+    .value {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="app">
+
+  <div id="canvas-container"></div>
+
+  <div id="controls">
+
+    <div class="count-row">
+      <label for="peak-count">Peak Count</label>
+
+      <input
+        id="peak-count"
+        type="number"
+        min="1"
+        max="8"
+        step="1"
+        value="4"
+      />
+    </div>
+
+    <div class="global-row">
+      <label for="base-thickness">Base Thickness</label>
+      <input
+        id="base-thickness"
+        type="range"
+        min="95"
+        max="200"
+        step="1"
+        value="135"
+      />
+      <span id="base-thickness-value" class="value">135</span>
+    </div>
+
+    <div class="global-row">
+      <label for="animation-speed">Speed</label>
+      <input
+        id="animation-speed"
+        type="range"
+        min="0"
+        max="3"
+        step="0.05"
+        value="1"
+      />
+      <span id="animation-speed-value" class="value">1.00×</span>
+    </div>
+
+    <div class="global-row">
+      <label for="peak-height">Peak Height</label>
+
+      <input
+        id="peak-height"
+        type="range"
+        min="0"
+        max="60"
+        step="1"
+        value="24"
+      />
+
+      <span id="peak-height-value" class="value">24</span>
+    </div>
+
+    <div class="global-row">
+      <label for="valley-depth">Valley Depth</label>
+
+      <input
+        id="valley-depth"
+        type="range"
+        min="0"
+        max="50"
+        step="1"
+        value="18"
+      />
+
+      <span id="valley-depth-value" class="value">18</span>
+    </div>
+
+    <button id="export-svg" type="button" disabled>Export SVG</button>
+
+    <div id="peak-controls"></div>
+
+  </div>
+
+</div>
+
+
+<script src="script.js"></script>
+
+</body>
+</html>
