@@ -32,9 +32,28 @@ let frameVertices = [];
 const INNER_CIRCLE = { x: -7, y: -3, radius: 95 };
 
 const exportSvgButton = document.getElementById("export-svg");
-exportSvgButton.addEventListener("click", exportSvg);
+const export10SvgButton = document.getElementById("export-10-svg");
+let exportingBatch = false;
+exportSvgButton.addEventListener("click", () => exportSvg());
+export10SvgButton.addEventListener("click", export10Svg);
 
-function exportSvg() {
+async function export10Svg() {
+  if (!frameVertices.length || exportingBatch) return;
+
+  exportingBatch = true;
+  export10SvgButton.disabled = true;
+  try {
+    for (let i = 1; i <= 15; i++) {
+      if (i > 1) await new Promise(resolve => setTimeout(resolve, 400));
+      exportSvg(`omi-logo-${String(i).padStart(2, "0")}.svg`);
+    }
+  } finally {
+    exportingBatch = false;
+    export10SvgButton.disabled = false;
+  }
+}
+
+function exportSvg(filename = "omi-logo.svg") {
   if (!frameVertices.length) return;
 
   const outline = frameVertices.map(([x, y], i) =>
@@ -59,7 +78,7 @@ function exportSvg() {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = "omi-logo.svg";
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -599,6 +618,7 @@ function draw() {
 
 
   exportSvgButton.disabled = false;
+  export10SvgButton.disabled = exportingBatch;
   time += 0.025 * state.speed;
 }
 
