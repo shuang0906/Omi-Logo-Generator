@@ -29,8 +29,10 @@
     }
 
     #canvas-container {
-      width: 460px;
-      height: 460px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     canvas {
@@ -39,6 +41,7 @@
 
     #controls {
       width: 466px;
+      flex-shrink: 0;
       padding-top: 20px;
     }
 
@@ -174,6 +177,7 @@
 
     <button id="export-svg" type="button" disabled>Export SVG</button>
     <button id="export-10-svg" type="button" disabled>export 10 svg</button>
+    <button id="toggle-peak-guides" type="button" aria-pressed="true">Turn off peak guides</button>
 
     <div id="peak-controls"></div>
 

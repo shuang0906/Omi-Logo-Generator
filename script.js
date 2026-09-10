@@ -5,8 +5,11 @@
 // ======================================================
 
 const MAX_PEAKS = 8;
+const LOGO_SCALE = 2;
+const CANVAS_SIZE = { width: 500 * LOGO_SCALE, height: 500 * LOGO_SCALE };
 
 const state = {
+  showPeakGuides: true,
   baseRadius: 135,
   speed: 1,
   peakCount: 4,
@@ -33,6 +36,14 @@ const INNER_CIRCLE = { x: -7, y: -3, radius: 95 };
 
 const exportSvgButton = document.getElementById("export-svg");
 const export10SvgButton = document.getElementById("export-10-svg");
+const togglePeakGuidesButton = document.getElementById("toggle-peak-guides");
+togglePeakGuidesButton.addEventListener("click", () => {
+  state.showPeakGuides = !state.showPeakGuides;
+  togglePeakGuidesButton.setAttribute("aria-pressed", String(state.showPeakGuides));
+  togglePeakGuidesButton.textContent = state.showPeakGuides
+    ? "Turn off peak guides"
+    : "Turn on peak guides";
+});
 let exportingBatch = false;
 exportSvgButton.addEventListener("click", () => exportSvg());
 export10SvgButton.addEventListener("click", export10Svg);
@@ -59,9 +70,9 @@ function exportSvg(filename = "omi-logo.svg") {
   const outline = frameVertices.map(([x, y], i) =>
     `${i === 0 ? "M" : "L"} ${x} ${y}`
   ).join(" ") + " Z";
-  const cx = width / 2 + INNER_CIRCLE.x;
-  const cy = height / 2 + INNER_CIRCLE.y;
-  const radius = INNER_CIRCLE.radius;
+  const cx = width / 2 + INNER_CIRCLE.x * LOGO_SCALE;
+  const cy = height / 2 + INNER_CIRCLE.y * LOGO_SCALE;
+  const radius = INNER_CIRCLE.radius * LOGO_SCALE;
   // Clip out the inner circle, including where it extends beyond the outline.
   const cutout = `M 0 0 H ${width} V ${height} H 0 Z
     M ${cx - radius} ${cy}
@@ -392,7 +403,7 @@ updatePeakVisibility();
 function setup() {
 
   const canvas =
-    createCanvas(466, 472);
+    createCanvas(CANVAS_SIZE.width, CANVAS_SIZE.height);
 
   canvas.parent(
     "canvas-container"
@@ -414,6 +425,7 @@ function draw() {
     width / 2,
     height / 2
   );
+  scale(LOGO_SCALE);
 
   noStroke();
   fill(FG);
@@ -584,7 +596,7 @@ function draw() {
       //+ baseShape
       + movingPeaks
       + movingValleys
-      + microWave
+      //+ microWave
       + n;
 
 
@@ -596,7 +608,10 @@ function draw() {
 
 
     vertex(x, y);
-    frameVertices.push([x + width / 2, y + height / 2]);
+    frameVertices.push([
+      x * LOGO_SCALE + width / 2,
+      y * LOGO_SCALE + height / 2
+    ]);
   }
 
 
@@ -617,6 +632,8 @@ function draw() {
   );
 
 
+  if (state.showPeakGuides) drawPeakGuides();
+
   exportSvgButton.disabled = false;
   export10SvgButton.disabled = exportingBatch;
   time += 0.025 * state.speed;
@@ -626,6 +643,110 @@ function draw() {
 // ======================================================
 // LOCAL PEAK FUNCTION
 // ======================================================
+
+function drawPeakGuides() {
+  // The draw transform already places (0, 0) at the canvas center.
+  const colors = ["#d32f2f", "#1565c0", "#2e7d32", "#8e24aa",
+    "#bf5600", "#007c91", "#ad1457", "#5d4037"];
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(9);
+  textStyle(BOLD);
+  for (let i = 0; i < state.peakCount; i++) {
+    const angle = radians(state.peaks[i].angle) - time * 0.80;
+    const normalizedAngle = ((angle % TWO_PI) + TWO_PI) % TWO_PI;
+    const sample = normalizedAngle / TWO_PI * frameVertices.length;
+    const index = Math.floor(sample);
+    const fraction = sample - index;
+    const a = frameVertices[index];
+    const b = frameVertices[(index + 1) % frameVertices.length];
+    const x = (a[0] + (b[0] - a[0]) * fraction - width / 2) / LOGO_SCALE;
+    const y = (a[1] + (b[1] - a[1]) * fraction - height / 2) / LOGO_SCALE;
+    stroke(colors[i]);
+    strokeWeight(0.75);
+    drawingContext.setLineDash([3 * LOGO_SCALE, 3 * LOGO_SCALE]);
+    line(0, 0, x, y);
+    drawingContext.setLineDash([]);
+    fill(colors[i]);
+    circle(x, y, 4);
+
+    const peak = state.peaks[i];
+    const directionX = cos(angle);
+    const directionY = sin(angle);
+    const amplitude = state.peakHeight * peak.height;
+    const tipRadius = Math.hypot(x, y);
+    // Height measures this peak's contribution, excluding the other peaks,
+    // valleys and noise that also affect the final outline.
+    const startRadius = tipRadius - amplitude;
+    const startX = directionX * startRadius;
+    const startY = directionY * startRadius;
+    const tipX = directionX * tipRadius;
+    const tipY = directionY * tipRadius;
+    strokeWeight(1.5);
+    line(startX, startY, tipX, tipY);
+    for (const radius of [startRadius, tipRadius]) {
+      const tickX = directionX * radius;
+      const tickY = directionY * radius;
+      line(tickX - directionY * 4, tickY + directionX * 4,
+        tickX + directionY * 4, tickY - directionX * 4);
+    }
+    drawGuideLabel(
+      `H${i + 1}: ${peak.height.toFixed(2)}× (${(amplitude * LOGO_SCALE).toFixed(1)}px)`,
+      directionX * (startRadius + amplitude / 2) - directionY * 24,
+      directionY * (startRadius + amplitude / 2) + directionX * 24,
+      colors[i]
+    );
+
+    // Gaussian width is an angular half-width: at angle ± width,
+    // the peak's contribution is height / e, not zero.
+    const guideRadius = Math.max(25, state.baseRadius * 0.55) + i * 5;
+    stroke(colors[i]);
+    strokeWeight(0.75);
+    noFill();
+    arc(0, 0, guideRadius * 2, guideRadius * 2,
+      angle - peak.width, angle + peak.width);
+    for (const boundaryAngle of [angle - peak.width, angle + peak.width]) {
+      const dx = cos(boundaryAngle);
+      const dy = sin(boundaryAngle);
+      line(dx * (guideRadius - 4), dy * (guideRadius - 4),
+        dx * (guideRadius + 4), dy * (guideRadius + 4));
+      drawingContext.setLineDash([2, 3]);
+      line(dx * guideRadius, dy * guideRadius,
+        dx * tipRadius, dy * tipRadius);
+      drawingContext.setLineDash([]);
+    }
+    drawGuideLabel(`W${i + 1}: ±${peak.width.toFixed(2)} rad`,
+      directionX * (guideRadius - 10), directionY * (guideRadius - 10), colors[i]);
+
+    // Keep labels inside the canvas even when a peak is near its edge.
+    const labelX = constrain(x + cos(angle) * 23,
+      -width / (2 * LOGO_SCALE) + 24, width / (2 * LOGO_SCALE) - 24);
+    const labelY = constrain(y + sin(angle) * 23,
+      -height / (2 * LOGO_SCALE) + 10, height / (2 * LOGO_SCALE) - 10);
+    noStroke();
+    fill(255, 240);
+    rect(labelX - 20, labelY - 8, 40, 16, 3);
+    fill(colors[i]);
+    text(`Peak ${i + 1}`, labelX, labelY);
+  }
+  pop();
+}
+
+function drawGuideLabel(label, x, y, color) {
+  push();
+  textSize(7);
+  const labelWidth = textWidth(label) + 8;
+  const labelX = constrain(x, -width / (2 * LOGO_SCALE) + labelWidth / 2,
+    width / (2 * LOGO_SCALE) - labelWidth / 2);
+  const labelY = constrain(y, -height / (2 * LOGO_SCALE) + 7,
+    height / (2 * LOGO_SCALE) - 7);
+  noStroke();
+  fill(255, 240);
+  rect(labelX - labelWidth / 2, labelY - 6, labelWidth, 12, 2);
+  fill(color);
+  text(label, labelX, labelY);
+  pop();
+}
 
 function localPeak(
   angle,
