@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omi / Inflated Ring</title>
+  <style>
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #fff;
+      color: #24262a
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0
+    }
+
+    canvas {
+      display: block;
+      touch-action: none
+    }
+
+    .caption {
+      position: fixed;
+      top: 24px;
+      left: 24px;
+      pointer-events: none;
+      font-size: 12px;
+      letter-spacing: .15em
+    }
+
+    .controls {
+      position: fixed;
+      bottom: max(24px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(94%, 500px);
+      text-align: center
+    }
+
+    .buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap
+    }
+
+    button {
+      padding: 12px 20px;
+      min-height: 44px;
+      background: #ffffffdd;
+      border: 1px solid #c8c9cb;
+      border-radius: 24px;
+      color: inherit;
+      cursor: pointer;
+      font: inherit
+    }
+
+    button:focus-visible {
+      outline: 2px solid #1683ff;
+      outline-offset: 3px
+    }
+
+    button:disabled {
+      opacity: .5
+    }
+
+    p {
+      font-size: 12px;
+      color: #65686c;
+      line-height: 1.5
+    }
+
+    #status {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-content: center;
+      padding: 32px;
+      text-align: center;
+      background: #f5f5f3
+    }
+
+    #status[hidden] {
+      display: none
+    }
+  </style>
+  <script
+    type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}</script>
+</head>
+
+<body>
+  <div id="stage"></div>
+  <div class="caption">OMI / INFLATED RING</div>
+  <div class="controls">
+    <p>Drag to rotate ? Scroll or pinch to zoom<br>Switch to Attract to deform the outline.</p>
+    <div class="buttons"><button id="playback" disabled aria-pressed="false">Start</button><button id="mode"
+        disabled>Mode: Rotate</button><button id="reset" disabled>Reset View</button></div>
+  </div>
+  <div id="status" role="status">Loading 3D preview...</div>
+  <script type="module">
+    const status = document.getElementById('status');
+    try {
+      const THREE = await import('three');
+      const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+      const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+      const state = {
+        "isEditing": false,
+        "keepEditing": false,
+        "rotation": 0,
+        "showGuides": false,
+        "baseRadius": 141,
+        "baseShapeThickness": 136,
+        "speed": 0,
+        "baseShapeStrength": 0,
+        "baseShapeRotation": 45,
+        "baseShapeWaves": [
+          {
+            "amplitude": 9,
+            "frequency": 1,
+            "phase": -3.15,
+            "type": "sin"
+          },
+          {
+            "amplitude": 7.5,
+            "frequency": 3,
+            "phase": -1.2,
+            "type": "sin"
+          },
+          {
+            "amplitude": 4,
+            "frequency": 1,
+            "phase": -0.72,
+            "type": "cos"
+          }
+        ],
+        "microWaveStrength": 0,
+        "peakCount": 4,
+        "peakHeight": -60,
+        "valleyDepth": 0,
+        "peaks": [
+          {
+            "height": -0.55,
+            "angle": 74,
+            "width": 0.64
+          },
+          {
+            "height": -0.25,
+            "angle": 11,
+            "width": 0.98
+          },
+          {
+            "height": -0.35,
+            "angle": 195,
+            "width": 0.85
+          },
+          {
+            "height": 0.25,
+            "angle": 125,
+            "width": 0.48
+          },
+          {
+            "height": 2.4,
+            "angle": 47,
+            "width": 0.66
+          },
+          {
+            "height": 1,
+            "angle": 273,
+            "width": 1.28
+          },
+          {
+            "height": 0.65,
+            "angle": 110,
+            "width": 0.4
+          },
+          {
+            "height": 0.9,
+            "angle": 290,
+            "width": 0.55
+          }
+        ]
+      };
+      const { sin, cos, atan2, exp, pow } = Math;
+      const radians = angle => angle * Math.PI / 180;
+      const attraction = { active: false, x: 0, y: 0, radius: 300, strength: 0.6, maxPull: 200 };
+      const offsets = Array.from({ length: 240 }, () => ({ x: 0, y: 0 }));
+      let time = 0, elapsed = 0, playing = false, mode = 'rotate';
+      function attractionNormal() {
+        const length = Math.hypot(attraction.x, attraction.y);
+        // At the canvas center, use a horizontal target line.
+        return length > 0.001
+          ? { x: attraction.x / length, y: attraction.y / length }
+          : { x: 0, y: 1 };
+      }
+
+      function attractPoint(x, y, offset, smoothing) {
+        const dx = attraction.x - x;
+        const dy = attraction.y - y;
+        const distance = Math.hypot(dx, dy);
+        const t = Math.max(0, 1 - distance / attraction.radius);
+        const falloff = t * t * (3 - 2 * t);
+        // Project onto the line through the pointer, perpendicular to its radial direction.
+        const normal = attractionNormal();
+        const signedDistance = dx * normal.x + dy * normal.y;
+        const rawPull = Math.abs(signedDistance) * attraction.strength * falloff;
+        const pull = attraction.active && attraction.maxPull > 0
+          ? attraction.maxPull * Math.tanh(rawPull / attraction.maxPull) : 0;
+        const targetX = normal.x * Math.sign(signedDistance) * pull;
+        const targetY = normal.y * Math.sign(signedDistance) * pull;
+        offset.x += (targetX - offset.x) * smoothing;
+        offset.y += (targetY - offset.y) * smoothing;
+        if (!attraction.active && Math.hypot(offset.x, offset.y) < 0.01) offset.x = offset.y = 0;
+        return [x + offset.x, y + offset.y];
+      }
+
+      function smoothAttraction(displacements, passes = 8) {
+        // Smooth only displacement, preserving the original outline and its noise.
+        // Wrap neighbors around the closed outline to avoid a seam at the first point.
+        let current = displacements;
+        for (let pass = 0; pass < passes; pass++) {
+          current = current.map((point, i) => {
+            const previous = current[(i + current.length - 1) % current.length];
+            const next = current[(i + 1) % current.length];
+            return {
+              x: (previous.x + 2 * point.x + next.x) / 4,
+              y: (previous.y + 2 * point.y + next.y) / 4
+            };
+          });
+        }
+        return current;
+      }
+
+      function getBaseShapeOffset(angle) {
+        const baseAngle = angle - radians(state.baseShapeRotation);
+        return state.baseShapeWaves.reduce((total, wave) => {
+          const phase = baseAngle * wave.frequency + wave.phase;
+          return total + (wave.type === "cos" ? cos(phase) : sin(phase)) * wave.amplitude;
+        }, state.baseShapeThickness - 135);
+      }
+
+      function localPeak(
+        angle,
+        center,
+        amplitude,
+        peakWidth
+      ) {
+
+        const d =
+          atan2(
+            sin(angle - center),
+            cos(angle - center)
+          );
+
+
+        const falloff =
+          exp(
+            -pow(
+              d / peakWidth,
+              2
+            )
+          );
+
+
+        return amplitude * falloff;
+      }
+
+      // Same seeded, two-octave Perlin noise used by the p5 editor.
+      let seed = 503285139;
+      const perlin = Array.from({ length: 4096 }, () => {
+        seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+        return seed / 4294967296;
+      });
+      function outlineNoise(angle, time) {
+        let x = cos(angle) * .7 + 5, y = sin(angle) * .7 + 5, z = time * .03;
+        let result = 0, amplitude = .5;
+        const fade = v => .5 * (1 - Math.cos(v * Math.PI));
+        const mix = (a, b, t) => a + (b - a) * t;
+        for (let octave = 0; octave < 2; octave++) {
+          const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+          const fx = fade(x - xi), fy = fade(y - yi), fz = fade(z - zi);
+          const at = (dx, dy, dz) => perlin[(xi + dx + ((yi + dy) << 4) + ((zi + dz) << 8)) & 4095];
+          const layer = dz => mix(mix(at(0, 0, dz), at(1, 0, dz), fx), mix(at(0, 1, dz), at(1, 1, dz), fx), fy);
+          result += mix(layer(0), layer(1), fz) * amplitude;
+          x *= 2; y *= 2; z *= 2; amplitude *= .5;
+        }
+        return result * 7 - 3.5;
+      }
+      function makeOutline(dt) {
+        const points = [];
+        for (let i = 0; i < 240; i++) {
+          const a = i / 240 * Math.PI * 2;
+          let r = state.baseRadius + getBaseShapeOffset(a) * state.baseShapeStrength;
+          for (const p of state.peaks.slice(0, state.peakCount)) r += localPeak(a, radians(p.angle) - time * .8, state.peakHeight * p.height, p.width);
+          r += localPeak(a, radians(85) - time * .8, -state.valleyDepth * .8, .48)
+            + localPeak(a, radians(195) - time * .8, -state.valleyDepth, .55)
+            + localPeak(a, radians(290) - time * .8, -state.valleyDepth * .65, .4);
+          r += (sin(a * 4 - time * 1.2) * 2.2 + sin(a * 7 - time * .9) * 1.2) * state.microWaveStrength + outlineNoise(a, time);
+          const x = cos(a) * r, y = sin(a) * r;
+          attractPoint(x, y, offsets[i], 1 - Math.exp(-12 * dt));
+          points.push({ x, y });
+        }
+        const smooth = smoothAttraction(offsets);
+        return points.map((p, i) => ({ x: p.x + smooth[i].x, y: p.y + smooth[i].y }));
+      }
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color('#f5f5f3');
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+      document.getElementById('stage').append(renderer.domElement);
+      renderer.domElement.setAttribute('aria-label', '3D Omi logo. Drag to rotate; pinch or scroll to zoom.');
+      const camera = new THREE.PerspectiveCamera(38, 1, .1, 3000);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 380; controls.maxDistance = 1500;
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const room = new RoomEnvironment();
+      const environment = pmrem.fromScene(room, .04);
+      scene.environment = environment.texture;
+      room.dispose(); pmrem.dispose();
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
+      const key = new THREE.DirectionalLight(0xffffff, 4); key.position.set(-200, 400, 500); scene.add(key);
+      const material = new THREE.MeshStandardMaterial({ color: 0x30353c, metalness: .7, roughness: .28 });
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
+      // Closed elliptical sections join the exact outer outline to the circular hole.
+      // Shared wraparound vertices give continuous normals with no caps or flat faces.
+      const tubeSegments = 48;
+      const inflation = 0.95;
+      function createInflatedGeometry(points) {
+        const count = points.length;
+        const positions = new Float32Array(count * tubeSegments * 3);
+        const indices = [];
+        for (let i = 0; i < count; i++) {
+          const angle = i / count * Math.PI * 2;
+          const innerX = -7 + 95 * Math.cos(angle);
+          const innerY = -3 + 95 * Math.sin(angle);
+          const outer = points[i];
+          const centerX = (outer.x + innerX) / 2;
+          const centerY = (outer.y + innerY) / 2;
+          const halfX = (outer.x - innerX) / 2;
+          const halfY = (outer.y - innerY) / 2;
+          const halfDepth = Math.hypot(halfX, halfY) * inflation;
+          for (let j = 0; j < tubeSegments; j++) {
+            const phi = j / tubeSegments * Math.PI * 2;
+            const index = (i * tubeSegments + j) * 3;
+            positions[index] = centerX + halfX * Math.cos(phi);
+            positions[index + 1] = -(centerY + halfY * Math.cos(phi));
+            positions[index + 2] = halfDepth * Math.sin(phi);
+            const a = i * tubeSegments + j;
+            const b = i * tubeSegments + (j + 1) % tubeSegments;
+            const c = ((i + 1) % count) * tubeSegments + (j + 1) % tubeSegments;
+            const d = ((i + 1) % count) * tubeSegments + j;
+            indices.push(a, b, d, b, c, d);
+          }
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        geometry.computeBoundingSphere();
+        return geometry;
+      }
+      function rebuild(dt) {
+        const geometry = createInflatedGeometry(makeOutline(dt));
+        mesh.geometry.dispose();
+        mesh.geometry = geometry;
+      }
+      function resetView() {
+        const distance = camera.aspect < 1 ? 820 / camera.aspect : 820;
+        controls.maxDistance = Math.max(1500, distance * 1.5);
+        camera.position.set(distance * .28, distance * .18, distance * .94);
+        controls.target.set(0, 0, 0); controls.update();
+      }
+      function resize() {
+        renderer.setSize(innerWidth, innerHeight);
+        camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); resetView();
+      }
+      window.addEventListener('resize', resize); resize(); rebuild(1 / 60);
+      const playback = document.getElementById('playback');
+      playback.addEventListener('click', () => { playing = !playing; playback.textContent = playing ? 'Pause' : 'Start'; playback.setAttribute('aria-pressed', String(playing)); });
+      document.getElementById('reset').addEventListener('click', resetView);
+      const modeButton = document.getElementById('mode');
+      modeButton.addEventListener('click', () => {
+        mode = mode === 'rotate' ? 'attract' : 'rotate'; controls.enabled = mode === 'rotate'; attraction.active = false;
+        modeButton.textContent = mode === 'rotate' ? 'Mode: Rotate' : 'Mode: Attract';
+      });
+      const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2(), hit = new THREE.Vector3();
+      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      function move(event) {
+        if (mode !== 'attract') return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
+        raycaster.setFromCamera(pointer, camera);
+        if (raycaster.ray.intersectPlane(plane, hit)) {
+          mesh.worldToLocal(hit); attraction.x = hit.x; attraction.y = -hit.y; attraction.active = true;
+        }
+      }
+      renderer.domElement.addEventListener('pointermove', move);
+      renderer.domElement.addEventListener('pointerdown', move);
+      renderer.domElement.addEventListener('pointerleave', () => attraction.active = false);
+      renderer.domElement.addEventListener('pointercancel', () => attraction.active = false);
+      renderer.domElement.addEventListener('pointerup', event => { if (event.pointerType !== 'mouse') attraction.active = false; });
+      let last = null, accumulated = 0;
+      function frame(now) {
+        if (document.hidden) { last = null; return; }
+        const dt = last === null ? 0 : Math.min((now - last) / 1000, .05); last = now; accumulated += dt;
+        if (playing) { elapsed += dt; time += dt * 1.5; state.baseShapeStrength = Math.min(1, elapsed / 3); }
+        const changing = playing || attraction.active || offsets.some(p => p.x !== 0 || p.y !== 0);
+        if (changing && accumulated >= 1 / 30) { rebuild(accumulated); accumulated = 0; }
+        if (!changing) accumulated = 0;
+        controls.update(); renderer.render(scene, camera);
+      }
+      renderer.setAnimationLoop(frame);
+      renderer.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); renderer.setAnimationLoop(null); status.hidden = false; status.textContent = 'Graphics context lost. Reload to continue.'; });
+      status.hidden = true;
+      document.querySelectorAll('button').forEach(button => button.disabled = false);
+    } catch (error) {
+      console.error(error);
+      status.textContent = 'Unable to load the 3D preview. Check your connection and WebGL support, then reload.';
+    }
+  </script>
+</body>
+
+</html>
