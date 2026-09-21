@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omi Tilt Bulge</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    main, #canvas-container { position: fixed; inset: 0; }
+    #canvas-container canvas { display: block; touch-action: none; }
+    #motion-controls { position: fixed; z-index: 1; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(92%, 420px); }
+    #motion-status { width: 100%; margin: 0 0 8px; text-align: center; font-size: 13px; line-height: 1.5; }
+    button { min-width: 100px; min-height: 44px; padding: 10px 24px; border: 1px solid #000; border-radius: 24px; background: #fff; color: #000; font: inherit; cursor: pointer; }
+    button:hover { background: #f2f2f2; }
+    button:focus-visible { outline: 2px solid #1683ff; outline-offset: 4px; }
+    button:disabled { opacity: .5; cursor: wait; }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="canvas-container"></div>
+    <div id="motion-controls">
+      <p id="motion-status" role="status">Enable motion, hold still to calibrate, then tilt your phone.</p>
+      <button id="motion-enable" type="button" disabled>Enable Motion</button>
+      <button id="motion-calibrate" type="button" disabled>Calibrate</button>
+      <button id="playback" type="button" aria-pressed="false" disabled>Start</button>
+    </div>
+  </main>
+  <script>
+// Snapshot of the logo editor defaults. Playback uses the recording defaults.
+const state = {
+  "isEditing": false,
+  "keepEditing": false,
+  "rotation": 0,
+  "showGuides": false,
+  "baseRadius": 141,
+  "baseShapeThickness": 136,
+  "speed": 0,
+  "baseShapeStrength": 0,
+  "baseShapeRotation": 45,
+  "baseShapeWaves": [
+    {
+      "amplitude": 9,
+      "frequency": 1,
+      "phase": -3.15,
+      "type": "sin"
+    },
+    {
+      "amplitude": 7.5,
+      "frequency": 3,
+      "phase": -1.2,
+      "type": "sin"
+    },
+    {
+      "amplitude": 4,
+      "frequency": 1,
+      "phase": -0.72,
+      "type": "cos"
+    }
+  ],
+  "microWaveStrength": 0,
+  "peakCount": 4,
+  "peakHeight": -60,
+  "valleyDepth": 0,
+  "peaks": [
+    {
+      "height": -0.55,
+      "angle": 74,
+      "width": 0.64
+    },
+    {
+      "height": -0.25,
+      "angle": 11,
+      "width": 0.98
+    },
+    {
+      "height": -0.35,
+      "angle": 195,
+      "width": 0.85
+    },
+    {
+      "height": 0.25,
+      "angle": 125,
+      "width": 0.48
+    },
+    {
+      "height": 2.4,
+      "angle": 47,
+      "width": 0.66
+    },
+    {
+      "height": 1,
+      "angle": 273,
+      "width": 1.28
+    },
+    {
+      "height": 0.65,
+      "angle": 110,
+      "width": 0.4
+    },
+    {
+      "height": 0.9,
+      "angle": 290,
+      "width": 0.55
+    }
+  ]
+};
+const INNER_CIRCLE = { x: -7, y: -3, radius: 95 };
+let time = 0;
+let elapsed = 0;
+let playing = false;
+let lastTimestamp = null;
+const playback = document.getElementById('playback');
+const bulge = { active: false, x: 0, y: 0, maxAmount: 65, angularWidth: 1.2, fullTilt: 240, deadZone: 10 };
+const offsets = Array.from({ length: 240 }, () => ({ x: 0, y: 0 }));
+let forceTimestamp = null;
+
+function wakeCanvas() {
+  if (!document.hidden) loop();
+}
+
+function logoScale() {
+  return Math.min(1, width / 500, height / 500);
+}
+
+function windowResized() {
+  const container = document.getElementById('canvas-container');
+  resizeCanvas(container.clientWidth, container.clientHeight);
+  bulge.active = false;
+  lastTimestamp = null;
+  forceTimestamp = null;
+  wakeCanvas();
+}
+
+// Accelerometer input replaces the pointer; calibration supports a comfortable grip.
+const motionEnable = document.getElementById('motion-enable');
+const motionCalibrate = document.getElementById('motion-calibrate');
+const motionStatus = document.getElementById('motion-status');
+const motion = { enabled: false, baseline: null, samples: [], filtered: null, timestamp: null, timer: null };
+
+function screenGravity(x, y, angle) {
+  const radians = angle * Math.PI / 180;
+  return { x: x * Math.cos(radians) - y * Math.sin(radians),
+    y: -(x * Math.sin(radians) + y * Math.cos(radians)) };
+}
+
+function waitForMotion() {
+  clearTimeout(motion.timer);
+  motion.timer = setTimeout(() => {
+    motionStatus.textContent = 'No motion data received. Check motion access in your browser settings, then try again.';
+    stopMotion();
+  }, 6000);
+}
+
+function calibrateMotion() {
+  motion.baseline = null;
+  motion.samples = [];
+  motion.filtered = null;
+  motion.timestamp = null;
+  bulge.active = false;
+  motionStatus.textContent = 'Hold your phone still for a moment...';
+  waitForMotion();
+  wakeCanvas();
+}
+
+function stopMotion() {
+  motion.enabled = false;
+  clearTimeout(motion.timer);
+  window.removeEventListener('devicemotion', handleMotion);
+  bulge.active = false;
+  motionEnable.textContent = 'Enable Motion';
+  motionEnable.disabled = false;
+  motionEnable.setAttribute('aria-pressed', 'false');
+  motionCalibrate.disabled = true;
+  wakeCanvas();
+}
+
+function handleMotion(event) {
+  if (!motion.enabled || document.hidden) return;
+  const gravity = event.accelerationIncludingGravity;
+  if (!gravity || !Number.isFinite(gravity.x) || !Number.isFinite(gravity.y)) return;
+  const angle = window.screen.orientation?.angle ?? window.orientation ?? 0;
+  const current = screenGravity(gravity.x, gravity.y, angle);
+  if (!motion.baseline) {
+    motion.samples.push(current);
+    if (motion.samples.length < 15) return;
+    motion.baseline = motion.samples.reduce((sum, value) => ({ x: sum.x + value.x / 15, y: sum.y + value.y / 15 }), {x: 0, y: 0});
+    motion.filtered = { ...motion.baseline };
+    motionStatus.textContent = 'Tilt to bulge the outline. Calibrate to reset your neutral position.';
+  }
+  clearTimeout(motion.timer);
+  const now = performance.now();
+  const dt = motion.timestamp === null ? 1 / 60 : Math.min((now - motion.timestamp) / 1000, .1);
+  motion.timestamp = now;
+  const smoothing = 1 - Math.exp(-8 * dt);
+  motion.filtered.x += (current.x - motion.filtered.x) * smoothing;
+  motion.filtered.y += (current.y - motion.filtered.y) * smoothing;
+  let x = (motion.filtered.x - motion.baseline.x) * 65;
+  let y = (motion.filtered.y - motion.baseline.y) * 65;
+  const distance = Math.hypot(x, y);
+  const limit = bulge.fullTilt;
+  if (distance > limit) { x *= limit / distance; y *= limit / distance; }
+  const rotation = state.rotation * Math.PI / 180;
+  bulge.x = x * Math.cos(rotation) + y * Math.sin(rotation);
+  bulge.y = -x * Math.sin(rotation) + y * Math.cos(rotation);
+  // Hysteresis prevents sensor jitter around the calibrated neutral position.
+  bulge.active = distance > (bulge.active ? 10 : 18);
+  wakeCanvas();
+}
+
+motionEnable.addEventListener('click', async () => {
+  if (motion.enabled) {
+    stopMotion();
+    motionStatus.textContent = 'Motion disabled.';
+    return;
+  }
+  if (!window.isSecureContext) {
+    motionStatus.textContent = 'Motion requires HTTPS. Open this page using a secure URL.';
+    return;
+  }
+  if (!window.DeviceMotionEvent) {
+    motionStatus.textContent = 'Motion sensors are not available in this browser. Open this page on your phone.';
+    return;
+  }
+  motionEnable.disabled = true;
+  try {
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      const permission = await DeviceMotionEvent.requestPermission();
+      if (permission !== 'granted') {
+        motionStatus.textContent = 'Motion permission was denied. Allow motion access in your browser settings and retry.';
+        return;
+      }
+    }
+    motion.enabled = true;
+    motionEnable.textContent = 'Disable Motion';
+    motionEnable.setAttribute('aria-pressed', 'true');
+    motionCalibrate.disabled = false;
+    calibrateMotion();
+    window.addEventListener('devicemotion', handleMotion);
+  } catch (error) {
+    stopMotion();
+    motionStatus.textContent = 'Unable to enable motion. Check browser permissions and try again.';
+  } finally {
+    motionEnable.disabled = false;
+  }
+});
+motionCalibrate.addEventListener('click', calibrateMotion);
+function recalibrateOrientation() {
+  if (motion.enabled) calibrateMotion();
+}
+if (window.screen.orientation?.addEventListener) {
+  window.screen.orientation.addEventListener('change', recalibrateOrientation);
+} else {
+  window.addEventListener('orientationchange', recalibrateOrientation);
+}
+
+function updateBulge(x, y, offset, smoothing) {
+  const tilt = Math.hypot(bulge.x, bulge.y);
+  const direction = Math.atan2(bulge.y, bulge.x);
+  const angle = Math.atan2(y, x);
+  const difference = Math.atan2(Math.sin(angle - direction), Math.cos(angle - direction));
+  const intensity = Math.max(0, Math.min(1,
+    (tilt - bulge.deadZone) / (bulge.fullTilt - bulge.deadZone)));
+  const easedIntensity = intensity * intensity * (3 - 2 * intensity);
+  const spread = Math.exp(-0.5 * (difference / bulge.angularWidth) ** 2);
+  // Store radial expansion as a scalar. It never pulls the outline inward.
+  const target = bulge.active ? bulge.maxAmount * easedIntensity * spread : 0;
+  offset.x += (target - offset.x) * smoothing;
+  offset.y = 0;
+  if (!bulge.active && offset.x < 0.01) offset.x = 0;
+}
+
+function smoothBulge(displacements, passes = 8) {
+  // Smooth radial expansion only, preserving the original outline and its noise.
+  // Wrap neighbors around the closed outline to avoid a seam at the first point.
+  let current = displacements;
+  for (let pass = 0; pass < passes; pass++) {
+    current = current.map((point, i) => {
+      const previous = current[(i + current.length - 1) % current.length];
+      const next = current[(i + 1) % current.length];
+      return {
+        x: (previous.x + 2 * point.x + next.x) / 4,
+        y: (previous.y + 2 * point.y + next.y) / 4
+      };
+    });
+  }
+  return current;
+}
+
+function setup() {
+  const container = document.getElementById('canvas-container');
+  const canvas = createCanvas(container.clientWidth, container.clientHeight);
+  canvas.parent('canvas-container');
+  canvas.elt.setAttribute('role', 'img');
+  canvas.elt.setAttribute('aria-label', 'Animated Omi logo');
+  motionEnable.disabled = false;
+  noiseSeed(503285139);
+  noiseDetail(2, 0.5);
+  noLoop();
+  playback.disabled = false;
+}
+
+playback.addEventListener('click', () => {
+  playing = !playing;
+  playback.textContent = playing ? 'Pause' : 'Start';
+  playback.setAttribute('aria-pressed', String(playing));
+  lastTimestamp = null;
+  wakeCanvas();
+});
+document.addEventListener('visibilitychange', () => {
+  lastTimestamp = null;
+  forceTimestamp = null;
+  bulge.active = false;
+  if (document.hidden) {
+    clearTimeout(motion.timer);
+    noLoop();
+  } else {
+    if (motion.enabled) calibrateMotion();
+    wakeCanvas();
+  }
+});
+
+function draw() {
+  const forceNow = performance.now();
+  const forceSeconds = forceTimestamp === null ? 1 / 60 : Math.min((forceNow - forceTimestamp) / 1000, 0.05);
+  forceTimestamp = forceNow;
+  const smoothing = 1 - Math.exp(-12 * forceSeconds);
+  if (playing) {
+    const now = performance.now();
+    const seconds = lastTimestamp === null ? 0 : Math.min((now - lastTimestamp) / 1000, 0.1);
+    lastTimestamp = now;
+    elapsed += seconds;
+    time += seconds * 1.5;
+    state.baseShapeStrength = Math.min(1, elapsed / 3);
+  }
+  clear();
+  translate(
+    width / 2,
+    height / 2
+  );
+  scale(logoScale());
+  rotate(radians(state.rotation));
+  noStroke();
+  fill("#000000");
+  beginShape();
+  const points = 240;
+  const outline = [];
+  for (
+    let i = 0;
+    i < points;
+    i++
+  ) {
+    const angle =
+      map(
+        i,
+        0,
+        points,
+        0,
+        TWO_PI
+      );
+    const baseRadius = state.baseRadius;
+    const baseShape = getBaseShapeOffset(angle);
+    let movingPeaks = 0;
+    for (
+      let j = 0;
+      j < state.peakCount;
+      j++
+    ) {
+      const p =
+        state.peaks[j];
+      movingPeaks +=
+        localPeak(
+          angle,
+          radians(p.angle)
+          - time * 0.80,
+          state.peakHeight
+          * p.height,
+          p.width
+        );
+    }
+    let movingValleys = 0;
+    movingValleys +=
+      localPeak(
+        angle,
+        radians(85)
+        - time * 0.80,
+        -state.valleyDepth * 0.8,
+        0.48
+      );
+    movingValleys +=
+      localPeak(
+        angle,
+        radians(195)
+        - time * 0.80,
+        -state.valleyDepth,
+        0.55
+      );
+    movingValleys +=
+      localPeak(
+        angle,
+        radians(290)
+        - time * 0.80,
+        -state.valleyDepth * 0.65,
+        0.40
+      );
+    const microWave =
+      sin(
+        angle * 4
+        - time * 1.2
+      ) * 2.2
+      +
+      sin(
+        angle * 7
+        - time * 0.9
+      ) * 1.2;
+    let n =
+      noise(
+        cos(angle) * 0.7 + 5,
+        sin(angle) * 0.7 + 5,
+        time * 0.03
+      );
+    n =
+      map(
+        n,
+        0,
+        1,
+        -3.5,
+        3.5
+      );
+    const r =
+      baseRadius
+      + baseShape * state.baseShapeStrength
+      + movingPeaks
+      + movingValleys
+      + microWave * state.microWaveStrength
+      + n;
+    const x =
+      cos(angle) * r;
+    const y =
+      sin(angle) * r;
+    updateBulge(x, y, offsets[i], smoothing);
+    outline.push({ x, y });
+  }
+  const smoothed = smoothBulge(offsets);
+  outline.forEach((point, i) => {
+    const angle = Math.atan2(point.y, point.x);
+    vertex(point.x + Math.cos(angle) * smoothed[i].x,
+      point.y + Math.sin(angle) * smoothed[i].x);
+  });
+  endShape(CLOSE);
+  erase();
+  ellipse(
+    INNER_CIRCLE.x,
+    INNER_CIRCLE.y,
+    INNER_CIRCLE.radius * 2,
+    INNER_CIRCLE.radius * 2
+  );
+  noErase();
+  if (!playing && !bulge.active && offsets.every(offset => offset.x === 0 && offset.y === 0)) {
+    forceTimestamp = null;
+    noLoop();
+  }
+}
+function getBaseShapeOffset(angle) {
+  const baseAngle = angle - radians(state.baseShapeRotation);
+  return state.baseShapeWaves.reduce((total, wave) => {
+    const phase = baseAngle * wave.frequency + wave.phase;
+    return total + (wave.type === "cos" ? cos(phase) : sin(phase)) * wave.amplitude;
+  }, state.baseShapeThickness - 135);
+}
+
+function localPeak(
+  angle,
+  center,
+  amplitude,
+  peakWidth
+) {
+
+  const d =
+    atan2(
+      sin(angle - center),
+      cos(angle - center)
+    );
+
+
+  const falloff =
+    exp(
+      -pow(
+        d / peakWidth,
+        2
+      )
+    );
+
+
+  return amplitude * falloff;
+}
+  </script>
+</body>
+</html>
