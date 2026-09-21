@@ -5,13 +5,25 @@
 // ======================================================
 
 const MAX_PEAKS = 8;
-const LOGO_SCALE = 2;
+let LOGO_SCALE = 1;
 const CANVAS_SIZE = { width: 500 * LOGO_SCALE, height: 500 * LOGO_SCALE };
 
 const state = {
-  showPeakGuides: true,
+  isEditing: false,
+  keepEditing: false,
+  rotation: 0,
+  showGuides: true,
   baseRadius: 135,
-  speed: 1,
+  baseShapeThickness: 135,
+  speed: 0,
+  baseShapeStrength: 1,
+  baseShapeRotation: 0,
+  baseShapeWaves: [
+    { amplitude: 13, frequency: 2, phase: 0.5, type: "sin" },
+    { amplitude: 9, frequency: 3, phase: -1.2, type: "sin" },
+    { amplitude: 8, frequency: 1, phase: -0.8, type: "cos" }
+  ],
+  microWaveStrength: 1,
   peakCount: 4,
 
   peakHeight: 20,
@@ -32,20 +44,132 @@ const state = {
 
 let time = 0;
 let frameVertices = [];
+let frameParameters = null;
+const canvasView = { x: 0, y: 0, zoom: 1 };
+let logoNoiseSeed = crypto.getRandomValues(new Uint32Array(1))[0];
+let syncCanvasNavigation = () => {};
 const INNER_CIRCLE = { x: -7, y: -3, radius: 95 };
 
+const undoHistory = [];
+const redoHistory = [];
+let pendingHistory = null;
+let restoringHistory = false;
+let wheelHistoryTimer;
+const referenceHistoryUrls = new Set();
+
+function captureLogoHistory() {
+  const savedState = JSON.parse(JSON.stringify(state));
+  delete savedState.isEditing;
+  return {
+    state: savedState, time, seed: logoNoiseSeed, scale: LOGO_SCALE,
+    canvas: { ...CANVAS_SIZE }, innerCircle: { ...INNER_CIRCLE }, view: { ...canvasView },
+    reference: { url: referenceUrl, opacity: String(Number(referenceImage.style.opacity || 0.5) * 100), status: referenceStatus.textContent }
+  };
+}
+
+function beginLogoChange() {
+  if (!restoringHistory && !pendingHistory) pendingHistory = captureLogoHistory();
+}
+
+function finishLogoChange() {
+  clearTimeout(wheelHistoryTimer);
+  if (restoringHistory || !pendingHistory) return;
+  const before = pendingHistory;
+  pendingHistory = null;
+  const after = captureLogoHistory();
+  // Animation advancing on its own is not an edit.
+  if (JSON.stringify({ ...before, time: 0 }) === JSON.stringify({ ...after, time: 0 })) return;
+  undoHistory.push(before);
+  if (undoHistory.length > 100) undoHistory.shift();
+  redoHistory.length = 0;
+  releaseUnusedReferences();
+}
+
+function releaseUnusedReferences() {
+  const used = new Set([referenceUrl, pendingHistory?.reference.url,
+    ...undoHistory.map(item => item.reference.url), ...redoHistory.map(item => item.reference.url)]);
+  for (const url of referenceHistoryUrls) {
+    if (!used.has(url)) { URL.revokeObjectURL(url); referenceHistoryUrls.delete(url); }
+  }
+}
+
+function restoreLogoHistory(saved) {
+  restoringHistory = true;
+  try {
+    for (const key of Object.keys(saved.state)) {
+      if (key === "peaks" || key === "baseShapeWaves") {
+        saved.state[key].forEach((item, i) => Object.assign(state[key][i], item));
+      } else state[key] = saved.state[key];
+    }
+    time = saved.time;
+    logoNoiseSeed = saved.seed;
+    noiseSeed(logoNoiseSeed);
+    LOGO_SCALE = saved.scale;
+    Object.assign(CANVAS_SIZE, saved.canvas);
+    Object.assign(INNER_CIRCLE, saved.innerCircle);
+    Object.assign(canvasView, saved.view);
+    resizeCanvas(CANVAS_SIZE.width, CANVAS_SIZE.height, true);
+    referenceRequest++;
+    referenceUrl = saved.reference.url;
+    if (referenceUrl) referenceImage.src = referenceUrl;
+    else referenceImage.removeAttribute("src");
+    referenceImage.hidden = !referenceUrl;
+    referenceOpacity.value = saved.reference.opacity;
+    referenceImage.style.opacity = Number(saved.reference.opacity) / 100;
+    referenceOpacityValue.textContent = `${saved.reference.opacity}%`;
+    referenceOpacity.disabled = removeReference.disabled = !referenceUrl;
+    referenceStatus.textContent = saved.reference.status;
+    syncLogoControls();
+    syncCanvasNavigation();
+  } finally { restoringHistory = false; }
+}
+
+document.addEventListener("keydown", event => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "z") return;
+  event.preventDefault();
+  finishLogoChange();
+  const from = event.shiftKey ? redoHistory : undoHistory;
+  const to = event.shiftKey ? undoHistory : redoHistory;
+  if (!from.length) return;
+  to.push(captureLogoHistory());
+  restoreLogoHistory(from.pop());
+}, true);
+
+document.addEventListener("pointerdown", event => {
+  if (event.target.closest('#controls input[type="range"], #controls input[type="number"], #canvas-container')) {
+    finishLogoChange();
+    beginLogoChange();
+  }
+}, true);
+document.addEventListener("input", event => {
+  if (event.target.matches('#controls input[type="range"], #controls input[type="number"]')) beginLogoChange();
+}, true);
+document.addEventListener("change", event => {
+  if (event.target.matches('#controls input[type="range"], #controls input[type="number"]')) finishLogoChange();
+});
+document.addEventListener("pointerup", () => queueMicrotask(finishLogoChange));
+document.addEventListener("pointercancel", () => queueMicrotask(finishLogoChange));
+document.addEventListener("click", event => {
+  if (event.target.closest('#toggle-guides, #keep-editing, #remove-reference')) {
+    beginLogoChange();
+    queueMicrotask(finishLogoChange);
+  }
+}, true);
+
 const exportSvgButton = document.getElementById("export-svg");
+const exportParametersButton = document.getElementById("export-parameters");
 const export10SvgButton = document.getElementById("export-10-svg");
-const togglePeakGuidesButton = document.getElementById("toggle-peak-guides");
-togglePeakGuidesButton.addEventListener("click", () => {
-  state.showPeakGuides = !state.showPeakGuides;
-  togglePeakGuidesButton.setAttribute("aria-pressed", String(state.showPeakGuides));
-  togglePeakGuidesButton.textContent = state.showPeakGuides
-    ? "Turn off peak guides"
-    : "Turn on peak guides";
+const toggleGuidesButton = document.getElementById("toggle-guides");
+toggleGuidesButton.addEventListener("click", () => {
+  state.showGuides = !state.showGuides;
+  toggleGuidesButton.setAttribute("aria-pressed", String(state.showGuides));
+  toggleGuidesButton.textContent = state.showGuides
+    ? "Turn off guides"
+    : "Turn on guides";
 });
 let exportingBatch = false;
 exportSvgButton.addEventListener("click", () => exportSvg());
+exportParametersButton.addEventListener("click", () => exportParameters());
 export10SvgButton.addEventListener("click", export10Svg);
 
 async function export10Svg() {
@@ -53,10 +177,11 @@ async function export10Svg() {
 
   exportingBatch = true;
   export10SvgButton.disabled = true;
+  const batchName = createExportName();
   try {
-    for (let i = 1; i <= 15; i++) {
+    for (let i = 1; i <= 10; i++) {
       if (i > 1) await new Promise(resolve => setTimeout(resolve, 400));
-      exportSvg(`omi-logo-${String(i).padStart(2, "0")}.svg`);
+      exportSvg(`${batchName}-${String(i).padStart(2, "0")}.svg`);
     }
   } finally {
     exportingBatch = false;
@@ -64,7 +189,15 @@ async function export10Svg() {
   }
 }
 
-function exportSvg(filename = "omi-logo.svg") {
+let lastExportTimestamp = 0;
+function createExportName() {
+  lastExportTimestamp = Math.max(Date.now(), lastExportTimestamp + 1000);
+  const date = new Date(lastExportTimestamp);
+  const pad = (value, digits = 2) => String(value).padStart(digits, "0");
+  return `omi-logo-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+function exportSvg(filename = `${createExportName()}.svg`) {
   if (!frameVertices.length) return;
 
   const outline = frameVertices.map(([x, y], i) =>
@@ -84,9 +217,32 @@ function exportSvg(filename = "omi-logo.svg") {
       <path d="${cutout}" clip-rule="evenodd" />
     </clipPath>
   </defs>
-  <path d="${outline}" fill="${FG}" clip-path="url(#ring-cutout)" />
+  <g transform="rotate(${frameParameters.state.rotation} ${width / 2} ${height / 2})">
+    <path d="${outline}" fill="${FG}" clip-path="url(#ring-cutout)" />
+  </g>
 </svg>`;
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  downloadLogoArtifact(filename, svg, "image/svg+xml;charset=utf-8");
+  exportParameters(filename.replace(/\.svg$/i, "") + ".txt", filename);
+}
+
+function exportParameters(filename = `${createExportName()}.txt`, svgFilename) {
+  if (!frameParameters) return;
+  const parameters = {
+    formatVersion: 1,
+    ...(svgFilename ? { svgFilename } : {}),
+    exportedAt: new Date().toISOString(),
+    ...frameParameters,
+    canvasView: { ...canvasView },
+    canvasViewNote: "Preview pan and zoom only; not applied to SVG output."
+  };
+  downloadLogoArtifact(filename,
+    JSON.stringify(parameters, null, 2), "text/plain;charset=utf-8");
+}
+
+// Keep this distinct from p5's global downloadFile(data, filename, extension).
+function downloadLogoArtifact(filename, contents, type) {
+  const file = new File([contents], filename, { type });
+  const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -98,6 +254,62 @@ function exportSvg(filename = "omi-logo.svg") {
 
 const BG = "#ffffff";
 const FG = "#000000";
+
+const referenceImage = document.getElementById("reference-image");
+const referenceUpload = document.getElementById("reference-upload");
+const referenceOpacity = document.getElementById("reference-opacity");
+const referenceOpacityValue = document.getElementById("reference-opacity-value");
+const removeReference = document.getElementById("remove-reference");
+const referenceStatus = document.getElementById("reference-status");
+let referenceUrl = null;
+let referenceRequest = 0;
+
+referenceUpload.addEventListener("change", async () => {
+  const file = referenceUpload.files[0];
+  if (!file) return;
+  const request = ++referenceRequest;
+  const url = URL.createObjectURL(file);
+  const probe = new Image();
+  probe.src = url;
+  try {
+    await probe.decode();
+    if (request !== referenceRequest) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    beginLogoChange();
+    referenceHistoryUrls.add(url);
+    referenceUrl = url;
+    referenceImage.src = url;
+    referenceImage.hidden = false;
+    referenceOpacity.disabled = false;
+    removeReference.disabled = false;
+    referenceStatus.textContent = `${file.name} · Reference only; excluded from SVG exports.`;
+    finishLogoChange();
+  } catch {
+    URL.revokeObjectURL(url);
+    if (request === referenceRequest) {
+      referenceStatus.textContent = "Unable to load this image. Please choose another image.";
+    }
+  }
+  if (request === referenceRequest) referenceUpload.value = "";
+});
+
+referenceOpacity.addEventListener("input", () => {
+  referenceImage.style.opacity = Number(referenceOpacity.value) / 100;
+  referenceOpacityValue.textContent = `${referenceOpacity.value}%`;
+});
+
+removeReference.addEventListener("click", () => {
+  referenceRequest++;
+  referenceImage.hidden = true;
+  referenceImage.removeAttribute("src");
+  referenceUrl = null;
+  referenceUpload.value = "";
+  referenceOpacity.disabled = true;
+  removeReference.disabled = true;
+  referenceStatus.textContent = "Reference images are not included in SVG exports.";
+});
 
 
 // ======================================================
@@ -114,6 +326,14 @@ const baseThicknessValue =
   document.getElementById("base-thickness-value");
 
 const speedInput = document.getElementById("animation-speed");
+const rotationInput = document.getElementById("shape-rotation");
+const rotationValue = document.getElementById("shape-rotation-value");
+rotationInput.value = state.rotation;
+rotationValue.textContent = `${state.rotation}°`;
+rotationInput.addEventListener("input", () => {
+  state.rotation = Number(rotationInput.value);
+  rotationValue.textContent = `${state.rotation}°`;
+});
 const speedValue = document.getElementById("animation-speed-value");
 
 const peakHeightInput =
@@ -133,6 +353,121 @@ const peakControlsContainer =
 
 
 const peakGroups = [];
+let controlId = 0;
+
+const importParametersInput = document.getElementById("import-parameters");
+const importParametersStatus = document.getElementById("import-parameters-status");
+importParametersInput.addEventListener("change", async () => {
+  const file = importParametersInput.files[0];
+  if (!file) return;
+  importParametersInput.disabled = true;
+  try {
+    const data = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
+    validateLogoParameters(data);
+    finishLogoChange();
+    beginLogoChange();
+    // Preserve wave objects: their controls hold references to these objects.
+    for (const key of Object.keys(state)) {
+      if (key === "peaks" || key === "baseShapeWaves") {
+        data.state[key].forEach((item, i) => Object.assign(state[key][i], item));
+      } else if (key in data.state) {
+        state[key] = data.state[key];
+      }
+    }
+    state.keepEditing = data.state.keepEditing ?? false;
+    state.baseShapeThickness = data.state.baseShapeThickness ?? 135;
+    state.isEditing = state.keepEditing;
+    time = data.animationTime;
+    logoNoiseSeed = data.noise.seed;
+    noiseSeed(logoNoiseSeed);
+    noiseDetail(data.noise.octaves, data.noise.falloff);
+    Object.assign(INNER_CIRCLE, data.innerCircle);
+    LOGO_SCALE = data.canvas.logoScale;
+    Object.assign(CANVAS_SIZE, { width: data.canvas.width, height: data.canvas.height });
+    resizeCanvas(CANVAS_SIZE.width, CANVAS_SIZE.height, true);
+    Object.assign(canvasView, data.canvasView ?? { x: 0, y: 0, zoom: 1 });
+    syncLogoControls();
+    syncCanvasNavigation();
+    finishLogoChange();
+    importParametersStatus.textContent = `已恢复：${file.name}`;
+  } catch (error) {
+    importParametersStatus.textContent = `导入失败：${error.message}`;
+  } finally {
+    importParametersInput.value = "";
+    importParametersInput.disabled = false;
+  }
+});
+
+function validateLogoParameters(data) {
+  const fail = () => { throw new Error("请选择本工具导出的有效参数 TXT 文件。"); };
+  const number = (value, min, max) => {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) fail();
+  };
+  if (!data || data.formatVersion !== 1 || !data.state) fail();
+  const ranges = {
+    rotation: [0, 360], baseRadius: [95, 200], speed: [0, 3],
+    baseShapeStrength: [0, 3], baseShapeRotation: [0, 360],
+    microWaveStrength: [0, 3], peakCount: [1, MAX_PEAKS],
+    peakHeight: [-60, 60], valleyDepth: [0, 50]
+  };
+  for (const [key, range] of Object.entries(ranges)) number(data.state[key], ...range);
+  if ("baseShapeThickness" in data.state) number(data.state.baseShapeThickness, 95, 200);
+  if (!Number.isInteger(data.state.peakCount)) fail();
+  for (const key of ["isEditing", "keepEditing", "showGuides"]) {
+    if (key in data.state && typeof data.state[key] !== "boolean") fail();
+  }
+  if (!Array.isArray(data.state.peaks) || data.state.peaks.length !== MAX_PEAKS) fail();
+  for (const peak of data.state.peaks) {
+    if (!peak) fail();
+    number(peak.height, -3, 3); number(peak.angle, 0, 360); number(peak.width, 0.05, 1.5);
+  }
+  if (!Array.isArray(data.state.baseShapeWaves) || data.state.baseShapeWaves.length !== 3) fail();
+  for (const wave of data.state.baseShapeWaves) {
+    if (!wave || !["sin", "cos"].includes(wave.type)) fail();
+    number(wave.amplitude, 0, 40); number(wave.frequency, 1, 12); number(wave.phase, -3.15, 3.15);
+    if (!Number.isInteger(wave.frequency)) fail();
+  }
+  number(data.animationTime, 0, Number.MAX_SAFE_INTEGER);
+  if (!data.noise || !data.canvas || !data.innerCircle) fail();
+  number(data.noise.seed, 0, 4294967295);
+  if (!Number.isInteger(data.noise.seed) || data.noise.octaves !== 2 || data.noise.falloff !== 0.5) fail();
+  number(data.canvas.width, 1, 4096); number(data.canvas.height, 1, 4096);
+  number(data.canvas.logoScale, 0.1, 8);
+  for (const key of ["x", "y"]) number(data.innerCircle[key], -4096, 4096);
+  number(data.innerCircle.radius, 1, 4096);
+  if (data.canvasView) {
+    number(data.canvasView.x, -1e7, 1e7); number(data.canvasView.y, -1e7, 1e7);
+    number(data.canvasView.zoom, 0.25, 4);
+  }
+}
+
+function syncLogoControls() {
+  const setInput = (input, value) => {
+    input.value = value;
+    input.dispatchEvent(new Event("input"));
+  };
+  for (const [id, key] of Object.entries({
+    "peak-count": "peakCount", "base-thickness": "baseRadius", "animation-speed": "speed",
+    "base-shape-thickness": "baseShapeThickness",
+    "shape-rotation": "rotation", "base-shape": "baseShapeStrength", "micro-wave": "microWaveStrength",
+    "peak-height": "peakHeight", "valley-depth": "valleyDepth"
+  })) setInput(document.getElementById(id), state[key]);
+  const baseValues = [state.baseShapeRotation,
+    ...state.baseShapeWaves.flatMap(wave => [wave.amplitude, wave.frequency, wave.phase])];
+  baseShapeControls.querySelectorAll('input[type="range"]').forEach((input, i) => setInput(input, baseValues[i]));
+  baseShapeControls.querySelectorAll(".peak-title").forEach((title, i) => {
+    title.textContent = `Wave ${i + 1} (${state.baseShapeWaves[i].type})`;
+  });
+  peakGroups.forEach((group, i) => {
+    const peak = state.peaks[i];
+    const values = [peak.height, peak.angle, peak.width];
+    group.querySelectorAll('input[type="range"]').forEach((input, j) => setInput(input, values[j]));
+  });
+  document.getElementById("keep-editing").checked = state.keepEditing;
+  toggleGuidesButton.setAttribute("aria-pressed", String(state.showGuides));
+  toggleGuidesButton.textContent = state.showGuides ? "Turn off guides" : "Turn on guides";
+  updatePeakVisibility();
+}
 
 
 // ======================================================
@@ -147,12 +482,61 @@ speedInput.addEventListener("input", () => {
   speedValue.textContent = `${state.speed.toFixed(2)}×`;
 });
 
-baseThicknessInput.value = state.baseRadius;
-baseThicknessValue.textContent = state.baseRadius;
+for (const [id, key] of [
+  ["base-shape", "baseShapeStrength"],
+  ["micro-wave", "microWaveStrength"]
+]) {
+  const input = document.getElementById(id);
+  const value = document.getElementById(`${id}-value`);
+  input.value = state[key];
+  value.textContent = `${state[key].toFixed(2)}×`;
+  input.addEventListener("input", () => {
+    state[key] = Number(input.value);
+    value.textContent = `${state[key].toFixed(2)}×`;
+  });
+}
 
-baseThicknessInput.addEventListener("input", () => {
-  state.baseRadius = Number(baseThicknessInput.value);
-  baseThicknessValue.textContent = state.baseRadius;
+const baseShapeThicknessInput = document.getElementById("base-shape-thickness");
+const baseShapeThicknessValue = document.getElementById("base-shape-thickness-value");
+for (const [input, value, key] of [
+  [baseThicknessInput, baseThicknessValue, "baseRadius"],
+  [baseShapeThicknessInput, baseShapeThicknessValue, "baseShapeThickness"]
+]) {
+  input.value = state[key];
+  value.textContent = state[key];
+  input.addEventListener("input", () => {
+    state[key] = Number(input.value);
+    value.textContent = state[key];
+  });
+}
+
+const baseShapeControls = document.getElementById("base-shape-controls");
+createPeakControl({
+  parent: baseShapeControls,
+  label: "Rotation (°)",
+  min: 0, max: 360, step: 1,
+  value: state.baseShapeRotation, decimals: 0,
+  onChange: value => { state.baseShapeRotation = value; }
+});
+
+state.baseShapeWaves.forEach((wave, index) => {
+  const group = document.createElement("div");
+  group.className = "peak-group";
+  const title = document.createElement("div");
+  title.className = "peak-title";
+  title.textContent = `Wave ${index + 1} (${wave.type})`;
+  group.appendChild(title);
+  for (const config of [
+    { key: "amplitude", label: "Amplitude", min: 0, max: 40, step: 0.5, decimals: 1 },
+    { key: "frequency", label: "Frequency", min: 1, max: 12, step: 1, decimals: 0 },
+    { key: "phase", label: "Phase (rad)", min: -3.15, max: 3.15, step: 0.01, decimals: 2 }
+  ]) {
+    createPeakControl({
+      parent: group, ...config, value: wave[config.key],
+      onChange: value => { wave[config.key] = value; }
+    });
+  }
+  baseShapeControls.appendChild(group);
 });
 
 // Peak Count
@@ -237,7 +621,7 @@ for (let i = 0; i < MAX_PEAKS; i++) {
 
     label: "Height",
 
-    min: 0,
+    min: -3,
     max: 3,
     step: 0.05,
 
@@ -334,6 +718,8 @@ function createPeakControl({
     document.createElement("input");
 
   slider.type = "range";
+  slider.id = `shape-control-${++controlId}`;
+  labelEl.htmlFor = slider.id;
 
   slider.min = min;
   slider.max = max;
@@ -409,7 +795,147 @@ function setup() {
     "canvas-container"
   );
 
+  setupCanvasNavigation(canvas.elt);
+
+  noiseSeed(logoNoiseSeed);
   noiseDetail(2, 0.5);
+}
+
+function setupCanvasNavigation(canvas) {
+  const container = document.getElementById("canvas-container");
+  container.style.width = `${CANVAS_SIZE.width}px`;
+  container.style.height = `${CANVAS_SIZE.height}px`;
+  const stage = document.getElementById("preview-stage");
+  const preview = document.getElementById("logo-preview");
+  const fitPreview = () => {
+    const scale = Math.max(0.01, Math.min(1,
+      (stage.clientWidth - 48) / preview.offsetWidth,
+      (stage.clientHeight - 48) / preview.offsetHeight));
+    preview.style.setProperty("--preview-scale", scale);
+  };
+  const previewObserver = new ResizeObserver(fitPreview);
+  previewObserver.observe(stage);
+  previewObserver.observe(preview);
+  fitPreview();
+  const displayScale = () => container.getBoundingClientRect().width / CANVAS_SIZE.width;
+  const view = canvasView;
+  const frame = document.createElement("div");
+  frame.className = "canvas-edit-frame";
+  frame.hidden = true;
+  for (const corner of ["nw", "ne", "sw", "se"]) {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "canvas-resize-handle";
+    handle.dataset.corner = corner;
+    handle.setAttribute("aria-label", `Resize canvas ${corner}`);
+    frame.appendChild(handle);
+  }
+  container.appendChild(frame);
+  let drag = null;
+  const updateView = () => {
+    canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
+    frame.style.left = `${view.x}px`;
+    frame.style.top = `${view.y}px`;
+    frame.style.width = `${CANVAS_SIZE.width * view.zoom}px`;
+    frame.style.height = `${CANVAS_SIZE.height * view.zoom}px`;
+  };
+  updateView();
+
+  const setEditing = editing => {
+    state.isEditing = editing || state.keepEditing;
+    frame.hidden = !state.isEditing;
+  };
+
+  syncCanvasNavigation = () => {
+    container.style.width = `${CANVAS_SIZE.width}px`;
+    container.style.height = `${CANVAS_SIZE.height}px`;
+    updateView();
+    fitPreview();
+    setEditing(state.keepEditing);
+  };
+
+  const keepEditingInput = document.getElementById("keep-editing");
+  keepEditingInput.checked = state.keepEditing;
+  keepEditingInput.addEventListener("change", () => {
+    state.keepEditing = keepEditingInput.checked;
+    setEditing(state.keepEditing);
+  });
+
+  document.addEventListener("pointerdown", event => {
+    if (!container.contains(event.target)) setEditing(false);
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") setEditing(false);
+  });
+
+  container.addEventListener("pointerdown", event => {
+    if (event.button !== 0 || drag) return;
+    setEditing(true);
+    drag = {
+      id: event.pointerId, x: event.clientX, y: event.clientY,
+      corner: event.target.dataset.corner,
+      start: { ...view }
+    };
+    container.setPointerCapture(event.pointerId);
+    container.classList.add("is-dragging");
+    event.preventDefault();
+  });
+  container.addEventListener("pointermove", event => {
+    if (!drag || drag.id !== event.pointerId) return;
+    const dx = (event.clientX - drag.x) / displayScale();
+    const dy = (event.clientY - drag.y) / displayScale();
+    if (drag.corner) {
+      const sx = drag.corner.includes("e") ? 1 : -1;
+      const sy = drag.corner.includes("s") ? 1 : -1;
+      const w = CANVAS_SIZE.width;
+      const h = CANVAS_SIZE.height;
+      const change = (sx * dx * w + sy * dy * h) / (w * w + h * h);
+      view.zoom = Math.max(0.25, Math.min(4, drag.start.zoom + change));
+      view.x = drag.start.x + (sx < 0 ? w * (drag.start.zoom - view.zoom) : 0);
+      view.y = drag.start.y + (sy < 0 ? h * (drag.start.zoom - view.zoom) : 0);
+    } else {
+      view.x = drag.start.x + dx;
+      view.y = drag.start.y + dy;
+    }
+    updateView();
+  });
+  const endDrag = event => {
+    if (!drag || drag.id !== event.pointerId) return;
+    drag = null;
+    container.classList.remove("is-dragging");
+    if (container.hasPointerCapture(event.pointerId)) {
+      container.releasePointerCapture(event.pointerId);
+    }
+  };
+  container.addEventListener("pointerup", endDrag);
+  container.addEventListener("pointercancel", endDrag);
+  container.addEventListener("lostpointercapture", endDrag);
+
+  container.addEventListener("wheel", event => {
+    beginLogoChange();
+    clearTimeout(wheelHistoryTimer);
+    wheelHistoryTimer = setTimeout(finishLogoChange, 250);
+    event.preventDefault();
+    const bounds = container.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / displayScale();
+    const y = (event.clientY - bounds.top) / displayScale();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? bounds.height : 1);
+    const zoom = Math.max(0.25, Math.min(4, view.zoom * Math.exp(-delta * 0.001)));
+    const ratio = zoom / view.zoom;
+    view.x = x - (x - view.x) * ratio;
+    view.y = y - (y - view.y) * ratio;
+    view.zoom = zoom;
+    updateView();
+  }, { passive: false });
+
+  container.addEventListener("dblclick", () => {
+    beginLogoChange();
+    view.x = 0;
+    view.y = 0;
+    view.zoom = 1;
+    updateView();
+    finishLogoChange();
+  });
 }
 
 
@@ -417,18 +943,72 @@ function setup() {
 // P5 DRAW
 // ======================================================
 
-function draw() {
+const recordingAnimationInputs = ["recording-animation-enabled", "recording-speed", "recording-duration", "recording-strength"]
+  .map(id => document.getElementById(id));
+const recordingAnimationStatus = document.getElementById("recording-animation-status");
+let recordingWasActive = false;
+let recordingTransition = null;
 
-  background(BG);
+function updateRecordingAnimation() {
+  const capture = window.P5Capture?.getInstance();
+  const active = capture?.state === "capturing";
+  if (active && !recordingWasActive) {
+    if (recordingAnimationInputs[0].checked) {
+      const values = recordingAnimationInputs.slice(1).map(input => input.valueAsNumber);
+      const valid = values.every(Number.isFinite)
+        && values[0] >= 0 && values[0] <= 3 && values[1] >= 0 && values[1] <= 3600 && values[2] >= 0 && values[2] <= 3;
+      if (valid) {
+        state.speed = values[0];
+        speedInput.value = state.speed;
+        speedValue.textContent = `${state.speed.toFixed(2)}×`;
+        recordingTransition = {
+          from: state.baseShapeStrength, to: values[2], duration: values[1],
+          firstFrame: capture.recorder.capturedCount,
+          framerate: capture.mergedOptions.framerate
+        };
+        recordingAnimationStatus.textContent = "录制中：正在调整 Strength…";
+      } else {
+        recordingAnimationStatus.textContent = "录制自动调整未启用：请检查 x、y、z 的范围。";
+      }
+    }
+    recordingAnimationInputs.forEach(input => { input.disabled = true; });
+  }
+  if (active && recordingTransition) {
+    const transition = recordingTransition;
+    // Use recorded frames so y seconds is accurate in the exported video,
+    // including when encoding slows the preview below the chosen frame rate.
+    const elapsed = (capture.recorder.capturedCount - transition.firstFrame) / transition.framerate;
+    const progress = transition.duration === 0 ? 1 : Math.min(1, Math.max(0, elapsed / transition.duration));
+    state.baseShapeStrength = transition.from + (transition.to - transition.from) * progress;
+    document.getElementById("base-shape").value = state.baseShapeStrength;
+    document.getElementById("base-shape-value").textContent = `${state.baseShapeStrength.toFixed(2)}×`;
+    if (progress === 1) {
+      recordingTransition = null;
+      recordingAnimationStatus.textContent = "Strength 已到达目标值，录制继续。";
+    }
+  }
+  if (!active && recordingWasActive) {
+    recordingTransition = null;
+    recordingAnimationInputs.forEach(input => { input.disabled = false; });
+    recordingAnimationStatus.textContent = "录制已停止，保留当前参数。";
+  }
+  recordingWasActive = active;
+}
+
+function draw() {
+  updateRecordingAnimation();
+
+  clear();
 
   translate(
     width / 2,
     height / 2
   );
   scale(LOGO_SCALE);
+  rotate(radians(state.rotation));
 
   noStroke();
-  fill(FG);
+  fill(state.isEditing ? "#1683ff66" : FG);
 
   beginShape();
 
@@ -459,10 +1039,7 @@ function draw() {
     const baseRadius = state.baseRadius;
 
 
-    const baseShape =
-      sin(angle * 2 + 0.5) * 13 +
-      sin(angle * 3 - 1.2) * 9 +
-      cos(angle - 0.8) * 8;
+    const baseShape = getBaseShapeOffset(angle);
 
 
     // ==================================================
@@ -593,10 +1170,10 @@ function draw() {
 
     const r =
       baseRadius
-      //+ baseShape
+      + baseShape * state.baseShapeStrength
       + movingPeaks
       + movingValleys
-      //+ microWave
+      + microWave * state.microWaveStrength
       + n;
 
 
@@ -622,7 +1199,7 @@ function draw() {
   // INNER CIRCLE
   // ==================================================
 
-  fill(BG);
+  erase();
 
   ellipse(
     INNER_CIRCLE.x,
@@ -630,11 +1207,36 @@ function draw() {
     INNER_CIRCLE.radius * 2,
     INNER_CIRCLE.radius * 2
   );
+  noErase();
+
+  // Fill behind the finished silhouette so the erased cutout is white too.
+  // p5.capture reads this canvas after draw(); CSS backgrounds are not captured.
+  if (window.P5Capture?.getInstance()?.state === "capturing") {
+    drawingContext.save();
+    drawingContext.resetTransform();
+    drawingContext.globalCompositeOperation = "destination-over";
+    drawingContext.fillStyle = BG;
+    drawingContext.fillRect(0, 0, drawingContext.canvas.width, drawingContext.canvas.height);
+    drawingContext.restore();
+  }
 
 
-  if (state.showPeakGuides) drawPeakGuides();
+  if (state.showGuides) {
+    drawBaseShapeGuides();
+    drawPeakGuides();
+  }
 
+  frameParameters = {
+    state: JSON.parse(JSON.stringify(state)),
+    animationTime: time,
+    noise: { seed: logoNoiseSeed, octaves: 2, falloff: 0.5 },
+    canvas: { ...CANVAS_SIZE, logoScale: LOGO_SCALE },
+    innerCircle: { ...INNER_CIRCLE },
+    fill: FG,
+    background: "transparent"
+  };
   exportSvgButton.disabled = false;
+  exportParametersButton.disabled = false;
   export10SvgButton.disabled = exportingBatch;
   time += 0.025 * state.speed;
 }
@@ -643,6 +1245,36 @@ function draw() {
 // ======================================================
 // LOCAL PEAK FUNCTION
 // ======================================================
+
+function getBaseShapeOffset(angle) {
+  const baseAngle = angle - radians(state.baseShapeRotation);
+  return state.baseShapeWaves.reduce((total, wave) => {
+    const phase = baseAngle * wave.frequency + wave.phase;
+    return total + (wave.type === "cos" ? cos(phase) : sin(phase)) * wave.amplitude;
+  }, state.baseShapeThickness - 135);
+}
+
+function drawBaseShapeGuides() {
+  push();
+  noFill();
+  strokeWeight(0.9);
+  stroke("#888888");
+  drawingContext.setLineDash([3, 3]);
+  circle(0, 0, state.baseRadius * 2);
+
+  stroke("#009dff");
+  strokeWeight(1.25);
+  drawingContext.setLineDash([5, 3]);
+  beginShape();
+  for (let i = 0; i < 240; i++) {
+    const angle = i / 240 * TWO_PI;
+    const radius = state.baseRadius + getBaseShapeOffset(angle) * state.baseShapeStrength;
+    vertex(cos(angle) * radius, sin(angle) * radius);
+  }
+  endShape(CLOSE);
+  drawingContext.setLineDash([]);
+  pop();
+}
 
 function drawPeakGuides() {
   // The draw transform already places (0, 0) at the canvas center.

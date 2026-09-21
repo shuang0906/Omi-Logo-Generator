@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liquid Metal · Omi</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #101112; color: #ededed; font: 14px/1.5 system-ui, sans-serif; }
+    main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 100dvh; }
+    .preview { position: sticky; top: 0; height: 100dvh; }
+    #shader { position: absolute; inset: 0; }
+    .caption { position: absolute; left: 28px; top: 22px; margin: 0; color: #fff; mix-blend-mode: difference; pointer-events: none; font-size: 12px; letter-spacing: .15em; }
+    #status { position: absolute; inset: 0; display: grid; place-content: center; padding: 32px; text-align: center; background: #101112; }
+    #status[hidden] { display: none; }
+    aside { padding: 32px 24px; border-left: 1px solid #303133; background: #18191b; }
+    h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: -.04em; }
+    .subtitle { margin: 0 0 32px; color: #929498; }
+    fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+    .control { margin-bottom: 22px; }
+    label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    output { color: #a5a7ab; font-variant-numeric: tabular-nums; }
+    input[type=range] { width: 100%; margin: 0; accent-color: #d9e0ef; }
+    select, button { width: 100%; padding: 10px 12px; border: 1px solid #414247; border-radius: 6px; background: #252629; color: inherit; font: inherit; }
+    input[type=color] { width: 42px; height: 28px; padding: 2px; border: 1px solid #414247; border-radius: 4px; background: transparent; }
+    button { cursor: pointer; }
+    button:hover { background: #36373b; }
+    :focus-visible { outline: 2px solid #b4c9ff; outline-offset: 4px; }
+    .buttons { display: flex; gap: 10px; margin-top: 30px; }
+    footer { margin-top: 28px; color: #929498; font-size: 12px; }
+    details { border-top: 1px solid #414247; padding-top: 12px; margin-top: 18px; }
+    summary { cursor: pointer; margin-bottom: 18px; }
+    #shape-status { color: #a5a7ab; font-size: 12px; min-height: 18px; }
+    h2 { font-size: 16px; margin-top: 28px; }
+    a { color: inherit; }
+    @media (max-width: 700px) {
+      main { grid-template-columns: 1fr; }
+      .preview { position: relative; height: 60dvh; }
+      aside { border-left: 0; border-top: 1px solid #303133; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="preview" aria-label="液态金属动态预览">
+      <div id="shader" role="img" aria-label="Liquid Metal 液态金属效果"></div>
+      <p class="caption">OMI / MATERIAL STUDY 01</p>
+      <div id="status" role="status">正在加载 Liquid Metal…</div>
+    </section>
+    <aside>
+      <h1>Liquid Metal</h1>
+      <p class="subtitle">流动的光泽，实时调节。</p>
+      <form id="controls">
+        <fieldset disabled>
+          <p class="subtitle">形状：Omi 可调圆环</p>
+          <div id="sliders"></div>
+          <label for="colorTint">金属色调 <input id="colorTint" type="color" value="#ffffff"></label>
+          <label for="colorBack">背景颜色 <input id="colorBack" type="color" value="#101112"></label>
+          <h2>形状编辑</h2>
+          <label for="import-parameters">上传 Logo 参数</label>
+          <input id="import-parameters" type="file" accept=".txt,.json,text/plain,application/json" style="max-width:100%">
+          <p id="import-status" role="status">支持 index.html 导出的 TXT / JSON。</p>
+          <p id="shape-status" role="status" aria-live="polite">拖动参数即可更新轮廓</p>
+          <div id="shape-controls"></div>
+          <div class="buttons"><button id="pause" type="button" aria-pressed="false">暂停</button><button type="reset">重置</button></div>
+        </fieldset>
+      </form>
+      <footer>由 <a href="https://github.com/paper-design/shaders" target="_blank" rel="noopener noreferrer">Paper Shaders</a> 驱动</footer>
+    </aside>
+  </main>
+  <script src="liquid-metal-shape.js"></script>
+  <script type="module">
+    const status = document.querySelector('#status');
+    const form = document.querySelector('#controls');
+    const pause = document.querySelector('#pause');
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    const settings = [
+      ['speed', '金属流动速度', 0, 3, 0.05, 1],
+      ['scale', '缩放', 0.2, 1.5, 0.01, 0.6],
+      ['distortion', '扭曲', 0, 1, 0.01, 0.07],
+      ['softness', '柔和度', 0, 1, 0.01, 0.1],
+      ['repetition', '纹理密度', 1, 10, 0.1, 2],
+      ['contour', '边缘金属起伏', 0, 1, 0.01, 0.4],
+      ['angle', '流动角度', 0, 360, 1, 70],
+    ];
+    for (const [id, label, min, max, step, value] of settings) {
+      const row = document.createElement('div');
+      row.className = 'control';
+      row.innerHTML = `<label for="${id}">${label}<output for="${id}" id="${id}-value">${value}</output></label><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}">`;
+      document.querySelector('#sliders').append(row);
+    }
+    let mount;
+    let paused = reducedMotion.matches;
+    try {
+      // Pin the library version: Paper Shaders uses breaking 0.0.x releases.
+      const { ShaderMount, liquidMetalFragmentShader, ShaderFitOptions, getShaderColorFromString } =
+        await import('https://cdn.jsdelivr.net/npm/@paper-design/shaders@0.0.80/+esm');
+      // Snapshot of script.js default geometry at time 0; fixed p5 noise seed 42.
+      // Preserve the original 240-point outline and offset circular cutout.
+      const shapeSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"500\" height=\"500\" viewBox=\"0 0 500 500\"><defs><clipPath id=\"cut\"><path d=\"M0 0H500V500H0Z M148 247a95 95 0 1 0 190 0a95 95 0 1 0-190 0Z\" clip-rule=\"evenodd\"/></clipPath></defs><path d=\"M400.257 250.000 L402.361 253.990 L404.381 258.091 L406.287 262.300 L408.051 266.612 L409.645 271.018 L411.044 275.507 L412.225 280.067 L413.168 284.682 L413.857 289.339 L414.277 294.018 L414.419 298.703 L414.277 303.377 L413.846 308.021 L413.129 312.619 L412.127 317.155 L410.848 321.614 L409.300 325.982 L407.494 330.247 L405.441 334.398 L403.157 338.425 L400.654 342.321 L397.947 346.078 L395.052 349.692 L391.983 353.157 L388.754 356.470 L385.378 359.627 L381.867 362.625 L378.233 365.462 L374.486 368.133 L370.637 370.637 L366.694 372.969 L362.666 375.128 L358.562 377.110 L354.389 378.910 L350.155 380.525 L345.867 381.950 L341.534 383.183 L337.164 384.221 L332.766 385.062 L328.350 385.707 L323.926 386.155 L319.505 386.411 L315.097 386.479 L310.714 386.366 L306.367 386.081 L302.065 385.635 L297.820 385.040 L293.641 384.312 L289.534 383.466 L285.509 382.520 L281.568 381.491 L277.717 380.398 L273.957 379.259 L270.288 378.092 L266.708 376.912 L263.215 375.736 L259.804 374.576 L256.469 373.445 L253.204 372.350 L250.000 371.299 L246.850 370.295 L243.746 369.337 L240.680 368.426 L237.644 367.559 L234.632 366.731 L231.637 365.937 L228.655 365.170 L225.679 364.423 L222.706 363.687 L219.734 362.956 L216.759 362.220 L213.780 361.474 L210.796 360.710 L207.805 359.922 L204.806 359.107 L201.800 358.259 L198.784 357.376 L195.759 356.454 L192.723 355.491 L189.675 354.486 L186.615 353.435 L183.542 352.336 L180.456 351.187 L177.358 349.983 L174.250 348.720 L171.133 347.393 L168.011 345.997 L164.889 344.526 L161.773 342.972 L158.670 341.330 L155.591 339.591 L152.544 337.750 L149.539 335.802 L146.589 333.741 L143.705 331.563 L140.899 329.267 L138.182 326.850 L135.566 324.314 L133.062 321.660 L130.678 318.890 L128.424 316.010 L126.307 313.025 L124.332 309.941 L122.505 306.764 L120.829 303.504 L119.307 300.168 L117.940 296.765 L116.729 293.302 L115.673 289.790 L114.770 286.235 L114.018 282.646 L113.415 279.032 L112.957 275.399 L112.640 271.756 L112.458 268.108 L112.406 264.462 L112.478 260.823 L112.667 257.197 L112.966 253.588 L113.368 250.000 L113.863 246.435 L114.445 242.896 L115.104 239.383 L115.834 235.899 L116.626 232.441 L117.475 229.010 L118.375 225.605 L119.319 222.223 L120.306 218.863 L121.331 215.523 L122.393 212.201 L123.493 208.895 L124.630 205.604 L125.806 202.326 L127.024 199.062 L128.288 195.810 L129.601 192.572 L130.967 189.349 L132.390 186.143 L133.876 182.956 L135.427 179.790 L137.048 176.648 L138.742 173.534 L140.510 170.451 L142.355 167.401 L144.278 164.388 L146.280 161.415 L148.361 158.484 L150.520 155.597 L152.757 152.757 L155.069 149.963 L157.453 147.216 L159.910 144.519 L162.440 141.872 L165.042 139.280 L167.717 136.747 L170.465 134.276 L173.288 131.874 L176.186 129.547 L179.160 127.302 L182.211 125.147 L185.337 123.092 L188.539 121.145 L191.816 119.317 L195.165 117.617 L198.584 116.057 L202.069 114.646 L205.614 113.394 L209.214 112.309 L212.862 111.399 L216.550 110.671 L220.270 110.130 L224.011 109.778 L227.766 109.619 L231.523 109.650 L235.272 109.870 L239.003 110.273 L242.708 110.852 L246.376 111.598 L250.000 112.501 L253.573 113.548 L257.089 114.727 L260.544 116.021 L263.935 117.415 L267.261 118.889 L270.523 120.426 L273.722 122.007 L276.864 123.615 L279.954 125.235 L282.998 126.850 L286.005 128.448 L288.984 130.020 L291.943 131.555 L294.893 133.050 L297.841 134.501 L300.796 135.909 L303.766 137.277 L306.756 138.611 L309.770 139.918 L312.810 141.210 L315.876 142.499 L318.967 143.800 L322.077 145.128 L325.198 146.499 L328.322 147.929 L331.435 149.436 L334.524 151.035 L337.573 152.740 L340.566 154.563 L343.486 156.514 L346.315 158.601 L349.038 160.826 L351.641 163.190 L354.112 165.692 L356.442 168.324 L358.625 171.079 L360.662 173.944 L362.555 176.906 L364.313 179.949 L365.947 183.058 L367.476 186.216 L368.917 189.409 L370.295 192.622 L371.633 195.846 L372.956 199.070 L374.288 202.290 L375.654 205.504 L377.073 208.711 L378.564 211.917 L380.141 215.129 L381.812 218.355 L383.582 221.606 L385.450 224.896 L387.411 228.236 L389.455 231.640 L391.566 235.121 L393.725 238.689 L395.910 242.353 L398.097 246.122 Z\" fill=\"black\" clip-path=\"url(#cut)\"/></svg>";
+      const geometry = OmiMetalShape.create(shapeSvg);
+      const shapeState = geometry.defaults();
+      const uniforms = {
+        ...geometry.uniforms(shapeState),
+        u_isImage: true,
+        u_shape: 0,
+        u_colorBack: getShaderColorFromString('#101112'),
+        u_colorTint: getShaderColorFromString('#ffffff'),
+        u_shiftRed: 0.3, u_shiftBlue: 0.3,
+        u_fit: ShaderFitOptions.contain, u_rotation: 0,
+        u_originX: 0.5, u_originY: 0.5, u_offsetX: 0, u_offsetY: 0,
+      };
+      for (const [id, , , , , value] of settings) {
+        if (id !== 'speed') uniforms[`u_${id}`] = value;
+      }
+      mount = new ShaderMount(document.querySelector('#shader'), OmiMetalShape.dynamicShader(liquidMetalFragmentShader), uniforms, {}, paused ? 0 : 1, 0, 1, 1920 * 1080 * 2);
+      const shapeStatus = document.querySelector('#shape-status');
+      let shapeFrame = null, disposed = false;
+      let shapeTime = 0, lastShapeTimestamp = null;
+      function shapeIsAnimating() {
+        return shapeState.speed > 0 && !paused && !document.hidden;
+      }
+      function scheduleShape() {
+        if (shapeFrame !== null || disposed) return;
+        shapeFrame = requestAnimationFrame(timestamp => {
+          shapeFrame = null;
+          if (disposed) return;
+          const animating = shapeIsAnimating();
+          if (animating && lastShapeTimestamp !== null) {
+            // Match index.html's 0.025/frame at 60 Hz, independent of refresh rate.
+            shapeTime += Math.min((timestamp - lastShapeTimestamp) / 1000, .1) * 1.5 * shapeState.speed;
+          }
+          lastShapeTimestamp = animating ? timestamp : null;
+          mount.setUniforms(geometry.uniforms(shapeState, shapeTime));
+          const message = animating ? '轮廓动画播放中' : '轮廓已更新';
+          if (shapeStatus.textContent !== message) shapeStatus.textContent = message;
+          if (animating) scheduleShape();
+        });
+      }
+      const resetShape = OmiMetalShape.controls(document.querySelector('#shape-controls'), shapeState, scheduleShape);
+      const importInput = document.querySelector('#import-parameters');
+      const importStatus = document.querySelector('#import-status');
+      let importVersion = 0;
+      importInput.addEventListener('change', async () => {
+        const file = importInput.files[0];
+        if (!file) return;
+        const version = ++importVersion;
+        importInput.disabled = true;
+        try {
+          const imported = OmiMetalShape.parseParameters(await file.text());
+          if (disposed || version !== importVersion) return;
+          resetShape(imported.state);
+          shapeTime = imported.time;
+          lastShapeTimestamp = null;
+          scheduleShape();
+          importStatus.textContent = `已导入：${file.name}`;
+        } catch (error) {
+          if (version === importVersion) importStatus.textContent = `导入失败：${error.message}`;
+        } finally {
+          if (version === importVersion) { importInput.value = ''; importInput.disabled = false; }
+        }
+      });
+      function update() {
+        const next = {};
+        for (const [id] of settings) {
+          const value = Number(document.getElementById(id).value);
+          document.getElementById(`${id}-value`).value = String(value);
+          if (id !== 'speed') next[`u_${id}`] = value;
+        }
+        for (const id of ['colorBack', 'colorTint']) next[`u_${id}`] = getShaderColorFromString(document.getElementById(id).value);
+        mount.setUniforms(next);
+        mount.setSpeed(paused ? 0 : Number(document.querySelector('#speed').value));
+        pause.textContent = paused ? '播放' : '暂停';
+        pause.setAttribute('aria-pressed', String(paused));
+        lastShapeTimestamp = null;
+        scheduleShape();
+      }
+      form.addEventListener('input', event => {
+        if (!event.target.closest('#shape-controls') && event.target !== importInput) update();
+      });
+      pause.addEventListener('click', () => { paused = !paused; update(); });
+      form.addEventListener('reset', () => {
+        importVersion++;
+        importInput.disabled = false;
+        importStatus.textContent = '支持 index.html 导出的 TXT / JSON。';
+        paused = reducedMotion.matches;
+        requestAnimationFrame(() => { resetShape(); shapeTime = 0; scheduleShape(); update(); });
+      });
+      reducedMotion.addEventListener('change', event => { paused = event.matches; update(); });
+      document.addEventListener('visibilitychange', () => {
+        lastShapeTimestamp = null;
+        if (document.hidden) { cancelAnimationFrame(shapeFrame); shapeFrame = null; }
+        else scheduleShape();
+      });
+      update();
+      form.querySelector('fieldset').disabled = false;
+      status.hidden = true;
+      window.addEventListener('pagehide', event => {
+        if (!event.persisted) { disposed = true; cancelAnimationFrame(shapeFrame); mount.dispose(); }
+      });
+    } catch (error) {
+      console.error('Liquid Metal initialization failed:', error);
+      status.textContent = '无法加载效果。请检查网络连接，并使用支持 WebGL 2 的浏览器刷新页面。';
+    }
+  </script>
+</body>
+</html>

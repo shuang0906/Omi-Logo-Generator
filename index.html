@@ -17,22 +17,101 @@
 
     body {
       margin: 0;
-      padding: 24px;
+      overflow: hidden;
       background: #fff;
       color: #000;
       font-family: Arial, Helvetica, sans-serif;
     }
 
     #app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 466px;
+      height: 100dvh;
+    }
+
+    #preview-stage {
       display: flex;
-      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      overflow: hidden;
     }
 
     #canvas-container {
       flex: 0 0 auto;
+      position: relative;
+      overflow: visible;
+      touch-action: none;
+      cursor: grab;
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    #canvas-container.is-dragging {
+      cursor: grabbing;
+    }
+
+    #canvas-container canvas {
+      position: relative;
+      z-index: 1;
+      transform-origin: 0 0;
+      flex-shrink: 0;
+    }
+
+    #reference-image {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0.5;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    #reference-upload {
+      max-width: 100%;
+      margin-bottom: 12px;
+    }
+
+    .canvas-edit-frame {
+      position: absolute;
+      border: 2px solid #1683ff;
+      cursor: move;
+      touch-action: none;
+      z-index: 2;
+    }
+
+    .canvas-resize-handle {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      background: white;
+      border: 2px solid #1683ff;
+      touch-action: none;
+    }
+
+    .canvas-resize-handle[data-corner="nw"] { left: -9px; top: -9px; cursor: nwse-resize; }
+    .canvas-resize-handle[data-corner="ne"] { right: -9px; top: -9px; cursor: nesw-resize; }
+    .canvas-resize-handle[data-corner="sw"] { left: -9px; bottom: -9px; cursor: nesw-resize; }
+    .canvas-resize-handle[data-corner="se"] { right: -9px; bottom: -9px; cursor: nwse-resize; }
+
+    #logo-preview {
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+      gap: 24px;
+      transform: scale(var(--preview-scale, 1));
+      transform-origin: center;
+    }
+
+    #omi-logo {
+      display: block;
+      width: 832px;
+      height: auto;
+      flex-shrink: 0;
     }
 
     canvas {
@@ -40,9 +119,25 @@
     }
 
     #controls {
-      width: 466px;
-      flex-shrink: 0;
-      padding-top: 20px;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 24px;
+      border-left: 1px solid #ddd;
+      background: #fff;
+      position: relative;
+      z-index: 2;
+    }
+
+    #base-shape-panel {
+      border-top: 1px solid #ddd;
+      margin-top: 14px;
+      padding-top: 12px;
+    }
+
+    .control-help {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #666;
     }
 
     .global-row,
@@ -102,9 +197,35 @@
 
 <div id="app">
 
-  <div id="canvas-container"></div>
+  <div id="preview-stage">
+  <div id="logo-preview">
+    <div id="canvas-container" title="Click to edit · Drag corners to resize · Double-click to reset" aria-label="Click canvas to edit, drag to move, drag corners to resize">
+      <img id="reference-image" alt="Reference" hidden />
+    </div>
+    <img id="omi-logo" src="Omi-logo.svg" alt="omi" width="208" height="67" />
+  </div>
+  </div>
 
   <div id="controls">
+
+    <section aria-labelledby="import-parameters-title">
+      <h2 id="import-parameters-title" class="peak-title">导入 Logo 参数</h2>
+      <input id="import-parameters" type="file" accept=".txt,.json,text/plain,application/json" />
+      <p id="import-parameters-status" class="control-help" role="status">上传导出的 TXT，恢复图形及控制参数。</p>
+    </section>
+
+    <section aria-labelledby="reference-title">
+      <h2 id="reference-title" class="peak-title">Reference Image</h2>
+      <label for="reference-upload" class="control-help">Upload an image behind the canvas</label>
+      <input id="reference-upload" type="file" accept="image/*" />
+      <div class="global-row">
+        <label for="reference-opacity">Opacity</label>
+        <input id="reference-opacity" type="range" min="0" max="100" step="1" value="50" disabled />
+        <span id="reference-opacity-value" class="value">50%</span>
+      </div>
+      <button id="remove-reference" type="button" disabled>Remove reference</button>
+      <p id="reference-status" class="control-help" role="status">Reference images are not included in SVG exports.</p>
+    </section>
 
     <div class="count-row">
       <label for="peak-count">Peak Count</label>
@@ -140,9 +261,21 @@
         min="0"
         max="3"
         step="0.05"
-        value="1"
+        value="0"
       />
-      <span id="animation-speed-value" class="value">1.00×</span>
+      <span id="animation-speed-value" class="value">0.00×</span>
+    </div>
+
+    <div class="global-row">
+      <label for="shape-rotation">Rotation (°)</label>
+      <input id="shape-rotation" type="range" min="0" max="360" step="1" value="0" />
+      <span id="shape-rotation-value" class="value">0°</span>
+    </div>
+
+    <div class="global-row">
+      <label for="micro-wave">Micro Wave</label>
+      <input id="micro-wave" type="range" min="0" max="3" step="0.05" value="1" />
+      <span id="micro-wave-value" class="value">1.00×</span>
     </div>
 
     <div class="global-row">
@@ -151,7 +284,7 @@
       <input
         id="peak-height"
         type="range"
-        min="0"
+        min="-60"
         max="60"
         step="1"
         value="24"
@@ -176,11 +309,50 @@
     </div>
 
     <button id="export-svg" type="button" disabled>Export SVG</button>
+    <button id="export-parameters" type="button" disabled>导出 TXT 参数</button>
+    <section aria-labelledby="recording-animation-title">
+      <h2 id="recording-animation-title" class="peak-title">录制动画</h2>
+      <label class="control-help"><input id="recording-animation-enabled" type="checkbox" checked /> 录制时自动调整参数</label>
+      <div class="count-row">
+        <label for="recording-speed">Speed → x</label>
+        <input id="recording-speed" type="number" min="0" max="3" step="0.05" value="1" />
+      </div>
+      <div class="count-row">
+        <label for="recording-duration">过渡秒数 y</label>
+        <input id="recording-duration" type="number" min="0" max="3600" step="0.1" value="3" />
+      </div>
+      <div class="count-row">
+        <label for="recording-strength">Strength → z</label>
+        <input id="recording-strength" type="number" min="0" max="3" step="0.05" value="0" />
+      </div>
+      <p id="recording-animation-status" class="control-help" role="status">点击录制按钮后，Speed 立即变为 x，Strength 在 y 秒内线性变为 z。停止录制后保留当前值。</p>
+    </section>
     <button id="export-10-svg" type="button" disabled>export 10 svg</button>
-    <button id="toggle-peak-guides" type="button" aria-pressed="true">Turn off peak guides</button>
+    <button id="toggle-guides" type="button" aria-pressed="true">Turn off guides</button>
+
+    <p class="control-help">
+      <label><input id="keep-editing" type="checkbox" /> 保持编辑模式（半透明蓝色）</label>
+    </p>
 
     <div id="peak-controls"></div>
 
+  <section id="base-shape-panel" aria-labelledby="base-shape-title">
+    <h2 id="base-shape-title" class="peak-title">Base Shape</h2>
+    <div class="global-row">
+      <label for="base-shape-thickness">Base Thickness</label>
+      <input id="base-shape-thickness" type="range" min="95" max="200" step="1" value="135" />
+      <span id="base-shape-thickness-value" class="value">135</span>
+    </div>
+    <p class="control-help">Independent Base Shape thickness. 135 adds no offset; Strength controls its effect on the outline.</p>
+    <p class="control-help">Blue dashed line: base shape outline. Gray dashed line: base radius.</p>
+    <p class="control-help">Amplitude controls depth; frequency controls the number of lobes; phase shifts each wave. Rotation turns the whole base shape.</p>
+    <div class="global-row">
+      <label for="base-shape">Strength</label>
+      <input id="base-shape" type="range" min="0" max="3" step="0.05" value="1" />
+      <span id="base-shape-value" class="value">1.00×</span>
+    </div>
+    <div id="base-shape-controls"></div>
+  </section>
   </div>
 
 </div>
