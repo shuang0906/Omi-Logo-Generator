@@ -314,16 +314,16 @@
       <h2 id="recording-animation-title" class="peak-title">Record Animation</h2>
       <label class="control-help"><input id="recording-animation-enabled" type="checkbox" checked /> Automatically adjust parameters while recording</label>
       <div class="count-row">
-        <label for="recording-speed">Speed → x</label>
+        <label for="recording-speed">Speed</label>
         <input id="recording-speed" type="number" min="0" max="3" step="0.05" value="1" />
       </div>
       <div class="count-row">
-        <label for="recording-duration">Duration y (s)</label>
-        <input id="recording-duration" type="number" min="0" max="3600" step="0.1" value="3" />
+        <label for="recording-strength">Base Shape Strength </label>
+        <input id="recording-strength" type="number" min="0" max="3" step="0.05" value="1" />
       </div>
-      <div class="count-row">
-        <label for="recording-strength">Strength → z</label>
-        <input id="recording-strength" type="number" min="0" max="3" step="0.05" value="0" />
+            <div class="count-row">
+        <label for="recording-duration">Duration (s)</label>
+        <input id="recording-duration" type="number" min="0" max="3600" step="0.1" value="3" />
       </div>
       <p id="recording-animation-status" class="control-help" role="status">When recording starts, Speed changes to x immediately and Strength transitions linearly to z over y seconds. Current values are kept when recording stops.</p>
     </section>
@@ -348,8 +348,8 @@
     <p class="control-help">Amplitude controls depth; frequency controls the number of lobes; phase shifts each wave. Rotation turns the whole base shape.</p>
     <div class="global-row">
       <label for="base-shape">Strength</label>
-      <input id="base-shape" type="range" min="0" max="3" step="0.05" value="1" />
-      <span id="base-shape-value" class="value">1.00×</span>
+      <input id="base-shape" type="range" min="0" max="3" step="0.05" value="0" />
+      <span id="base-shape-value" class="value">0.00×</span>
     </div>
     <div id="base-shape-controls"></div>
   </section>
@@ -358,7 +358,7 @@
 </div>
 
 
-<script src="script.js?v=ccb90b91f914"></script>
+<script src="script.js?v=a2b3638857c6"></script>
 
 </body>
 </html>

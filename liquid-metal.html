@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,6 +34,7 @@
     h2 { font-size: 16px; margin-top: 28px; }
     a { color: inherit; }
     @media (max-width: 700px) {
+    
       main { grid-template-columns: 1fr; }
       .preview { position: relative; height: 60dvh; }
       aside { border-left: 0; border-top: 1px solid #303133; }
@@ -42,46 +43,46 @@
 </head>
 <body>
   <main>
-    <section class="preview" aria-label="Animated liquid metal preview">
-      <div id="shader" role="img" aria-label="Liquid metal effect"></div>
+    <section class="preview" aria-label="液态金属动态预览">
+      <div id="shader" role="img" aria-label="Liquid Metal 液态金属效果"></div>
       <p class="caption">OMI / MATERIAL STUDY 01</p>
-      <div id="status" role="status">Loading Liquid Metal…</div>
+      <div id="status" role="status">正在加载 Liquid Metal…</div>
     </section>
     <aside>
       <h1>Liquid Metal</h1>
-      <p class="subtitle">Flowing reflections. Adjust in real time.</p>
+      <p class="subtitle">流动的光泽，实时调节。</p>
       <form id="controls">
         <fieldset disabled>
-          <p class="subtitle">Shape: Adjustable Omi ring</p>
+          <p class="subtitle">形状：Omi 可调圆环</p>
           <div id="sliders"></div>
-          <label for="colorTint">Metal Tint <input id="colorTint" type="color" value="#ffffff"></label>
-          <label for="colorBack">Background Color <input id="colorBack" type="color" value="#101112"></label>
-          <h2>Shape Editor</h2>
-          <label for="import-parameters">Upload Logo Parameters</label>
+          <label for="colorTint">金属色调 <input id="colorTint" type="color" value="#ffffff"></label>
+          <label for="colorBack">背景颜色 <input id="colorBack" type="color" value="#101112"></label>
+          <h2>形状编辑</h2>
+          <label for="import-parameters">上传 Logo 参数</label>
           <input id="import-parameters" type="file" accept=".txt,.json,text/plain,application/json" style="max-width:100%">
-          <p id="import-status" role="status">Supports TXT / JSON files exported from the logo editor.</p>
-          <p id="shape-status" role="status" aria-live="polite">Adjust the sliders to update the outline.</p>
+          <p id="import-status" role="status">支持 index.html 导出的 TXT / JSON。</p>
+          <p id="shape-status" role="status" aria-live="polite">拖动参数即可更新轮廓</p>
           <div id="shape-controls"></div>
-          <div class="buttons"><button id="pause" type="button" aria-pressed="false">Pause</button><button type="reset">Reset</button></div>
+          <div class="buttons"><button id="pause" type="button" aria-pressed="false">暂停</button><button type="reset">重置</button></div>
         </fieldset>
       </form>
-      <footer>Powered by <a href="https://github.com/paper-design/shaders" target="_blank" rel="noopener noreferrer">Paper Shaders</a></footer>
+      <footer>由 <a href="https://github.com/paper-design/shaders" target="_blank" rel="noopener noreferrer">Paper Shaders</a> 驱动</footer>
     </aside>
   </main>
-  <script src="liquid-metal-shape.js?v=36754d9cdf68"></script>
+  <script src="liquid-metal-shape.js"></script>
   <script type="module">
     const status = document.querySelector('#status');
     const form = document.querySelector('#controls');
     const pause = document.querySelector('#pause');
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     const settings = [
-      ['speed', 'Metal Flow Speed', 0, 3, 0.05, 1],
-      ['scale', 'Scale', 0.2, 1.5, 0.01, 0.6],
-      ['distortion', 'Distortion', 0, 1, 0.01, 0.07],
-      ['softness', 'Softness', 0, 1, 0.01, 0.1],
-      ['repetition', 'Texture Density', 1, 10, 0.1, 2],
-      ['contour', 'Edge Contour', 0, 1, 0.01, 0.4],
-      ['angle', 'Flow Angle', 0, 360, 1, 70],
+      ['speed', '金属流动速度', 0, 3, 0.05, 1],
+      ['scale', '缩放', 0.2, 1.5, 0.01, 0.6],
+      ['distortion', '扭曲', 0, 1, 0.01, 0.07],
+      ['softness', '柔和度', 0, 1, 0.01, 0.1],
+      ['repetition', '纹理密度', 1, 10, 0.1, 2],
+      ['contour', '边缘金属起伏', 0, 1, 0.01, 0.4],
+      ['angle', '流动角度', 0, 360, 1, 70],
     ];
     for (const [id, label, min, max, step, value] of settings) {
       const row = document.createElement('div');
@@ -101,7 +102,7 @@
       const geometry = OmiMetalShape.create(shapeSvg);
       const shapeState = geometry.defaults();
       const uniforms = {
-        ...geometry.uniforms(shapeState, OmiMetalShape.defaultAnimationTime),
+        ...geometry.uniforms(shapeState),
         u_isImage: true,
         u_shape: 0,
         u_colorBack: getShaderColorFromString('#101112'),
@@ -116,7 +117,7 @@
       mount = new ShaderMount(document.querySelector('#shader'), OmiMetalShape.dynamicShader(liquidMetalFragmentShader), uniforms, {}, paused ? 0 : 1, 0, 1, 1920 * 1080 * 2);
       const shapeStatus = document.querySelector('#shape-status');
       let shapeFrame = null, disposed = false;
-      let shapeTime = OmiMetalShape.defaultAnimationTime, lastShapeTimestamp = null;
+      let shapeTime = 0, lastShapeTimestamp = null;
       function shapeIsAnimating() {
         return shapeState.speed > 0 && !paused && !document.hidden;
       }
@@ -132,7 +133,7 @@
           }
           lastShapeTimestamp = animating ? timestamp : null;
           mount.setUniforms(geometry.uniforms(shapeState, shapeTime));
-          const message = animating ? 'Outline animation playing' : 'Outline updated';
+          const message = animating ? '轮廓动画播放中' : '轮廓已更新';
           if (shapeStatus.textContent !== message) shapeStatus.textContent = message;
           if (animating) scheduleShape();
         });
@@ -153,9 +154,9 @@
           shapeTime = imported.time;
           lastShapeTimestamp = null;
           scheduleShape();
-          importStatus.textContent = `Imported: ${file.name}`;
+          importStatus.textContent = `已导入：${file.name}`;
         } catch (error) {
-          if (version === importVersion) importStatus.textContent = `Import failed: ${error.message}`;
+          if (version === importVersion) importStatus.textContent = `导入失败：${error.message}`;
         } finally {
           if (version === importVersion) { importInput.value = ''; importInput.disabled = false; }
         }
@@ -170,7 +171,7 @@
         for (const id of ['colorBack', 'colorTint']) next[`u_${id}`] = getShaderColorFromString(document.getElementById(id).value);
         mount.setUniforms(next);
         mount.setSpeed(paused ? 0 : Number(document.querySelector('#speed').value));
-        pause.textContent = paused ? 'Play' : 'Pause';
+        pause.textContent = paused ? '播放' : '暂停';
         pause.setAttribute('aria-pressed', String(paused));
         lastShapeTimestamp = null;
         scheduleShape();
@@ -182,9 +183,9 @@
       form.addEventListener('reset', () => {
         importVersion++;
         importInput.disabled = false;
-        importStatus.textContent = 'Supports TXT / JSON files exported from the logo editor.';
+        importStatus.textContent = '支持 index.html 导出的 TXT / JSON。';
         paused = reducedMotion.matches;
-        requestAnimationFrame(() => { resetShape(); shapeTime = OmiMetalShape.defaultAnimationTime; scheduleShape(); update(); });
+        requestAnimationFrame(() => { resetShape(); shapeTime = 0; scheduleShape(); update(); });
       });
       reducedMotion.addEventListener('change', event => { paused = event.matches; update(); });
       document.addEventListener('visibilitychange', () => {
@@ -200,7 +201,7 @@
       });
     } catch (error) {
       console.error('Liquid Metal initialization failed:', error);
-      status.textContent = 'Unable to load the effect. Check your internet connection and reload in a browser that supports WebGL 2.';
+      status.textContent = '无法加载效果。请检查网络连接，并使用支持 WebGL 2 的浏览器刷新页面。';
     }
   </script>
 </body>

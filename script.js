@@ -16,7 +16,7 @@ const state = {
   "baseRadius": 141,
   "baseShapeThickness": 136,
   "speed": 0,
-  "baseShapeStrength": 1,
+  "baseShapeStrength": 0,
   "baseShapeRotation": 45,
   "baseShapeWaves": [
     {
@@ -87,7 +87,7 @@ const state = {
 };
 
 
-let time = 51.787499999997856;
+let time = 0;
 let frameVertices = [];
 let frameParameters = null;
 const canvasView = {"x": -36.05453853325014, "y": -41.42685945874289, "zoom": 1.099029165595923};

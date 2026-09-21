@@ -23,7 +23,7 @@ window.OmiMetalShape = (() => {
   "baseRadius": 141,
   "baseShapeThickness": 136,
   "speed": 0,
-  "baseShapeStrength": 1,
+  "baseShapeStrength": 0,
   "baseShapeRotation": 45,
   "microWaveStrength": 0,
   "peakCount": 4,
