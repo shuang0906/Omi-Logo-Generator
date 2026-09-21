@@ -12,6 +12,7 @@
     main, #canvas-container { position: fixed; inset: 0; }
     #canvas-container canvas { display: block; touch-action: none; }
     #motion-controls { position: fixed; z-index: 1; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(92%, 420px); }
+    #motion-controls[hidden] { display: none; }
     #motion-status { width: 100%; margin: 0 0 8px; text-align: center; font-size: 13px; line-height: 1.5; }
     button { min-width: 100px; min-height: 44px; padding: 10px 24px; border: 1px solid #000; border-radius: 24px; background: #fff; color: #000; font: inherit; cursor: pointer; }
     button:hover { background: #f2f2f2; }
@@ -21,12 +22,13 @@
 </head>
 <body>
   <main>
-    <div id="canvas-container"></div>
+    <div id="canvas-container" tabindex="-1" aria-label="Logo preview. Tap to restore hidden controls."></div>
     <div id="motion-controls">
       <p id="motion-status" role="status">Enable motion, hold still to calibrate, then tilt your phone.</p>
       <button id="motion-enable" type="button" disabled>Enable Motion</button>
       <button id="motion-calibrate" type="button" disabled>Calibrate</button>
       <button id="playback" type="button" aria-pressed="false" disabled>Start</button>
+      <button id="hide-ui" type="button" disabled>Hide UI</button>
     </div>
   </main>
   <script>
@@ -114,7 +116,30 @@ let elapsed = 0;
 let playing = false;
 let lastTimestamp = null;
 const playback = document.getElementById('playback');
-const attraction = { active: false, x: 0, y: 0, radius: 300, strength: 0.6, maxPull: 200 };
+let uiHidden = false;
+const motionControls = document.getElementById('motion-controls');
+const hideUI = document.getElementById('hide-ui');
+function setUIHidden(hidden) {
+  uiHidden = hidden;
+  motionControls.hidden = hidden;
+  if (hidden) {
+    document.getElementById('canvas-container').focus({ preventScroll: true });
+  } else {
+    hideUI.focus({ preventScroll: true });
+  }
+  wakeCanvas();
+}
+hideUI.addEventListener('click', () => setUIHidden(true));
+document.getElementById('canvas-container').addEventListener('click', () => {
+  if (uiHidden) setUIHidden(false);
+});
+document.addEventListener('keydown', event => {
+  if (uiHidden && (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    setUIHidden(false);
+  }
+});
+const attraction = { active: false, x: 0, y: 0, radius: 300, strength: 0.6, maxPull: 200, lineDistance: 260, clearance: 16, intensity: 0 };
 const offsets = Array.from({ length: 240 }, () => ({ x: 0, y: 0 }));
 let forceTimestamp = null;
 
@@ -202,7 +227,12 @@ function handleMotion(event) {
   let y = (motion.filtered.y - motion.baseline.y) * 65;
   const distance = Math.hypot(x, y);
   const limit = 240;
-  if (distance > limit) { x *= limit / distance; y *= limit / distance; }
+  const amount = Math.max(0, Math.min(1, (distance - 10) / (limit - 10)));
+  attraction.intensity = amount * amount * (3 - 2 * amount);
+  if (distance > 0.001) {
+    x *= attraction.lineDistance / distance;
+    y *= attraction.lineDistance / distance;
+  } else { x = 0; y = attraction.lineDistance; }
   const rotation = state.rotation * Math.PI / 180;
   attraction.x = x * Math.cos(rotation) + y * Math.sin(rotation);
   attraction.y = -x * Math.sin(rotation) + y * Math.cos(rotation);
@@ -271,10 +301,10 @@ function attractPoint(x, y, offset, smoothing) {
   const distance = Math.hypot(dx, dy);
   const t = Math.max(0, 1 - distance / attraction.radius);
   const falloff = t * t * (3 - 2 * t);
-  // Project onto the line through the pointer, perpendicular to its radial direction.
+  // The target line stays outside the logo; tilt magnitude affects force only.
   const normal = attractionNormal();
   const signedDistance = dx * normal.x + dy * normal.y;
-  const rawPull = Math.abs(signedDistance) * attraction.strength * falloff;
+  const rawPull = Math.max(0, signedDistance - attraction.clearance) * attraction.strength * attraction.intensity * falloff;
   const pull = attraction.active && attraction.maxPull > 0
     ? attraction.maxPull * Math.tanh(rawPull / attraction.maxPull) : 0;
   const targetX = normal.x * Math.sign(signedDistance) * pull;
@@ -313,6 +343,7 @@ function setup() {
   noiseDetail(2, 0.5);
   noLoop();
   playback.disabled = false;
+  hideUI.disabled = false;
 }
 
 playback.addEventListener('click', () => {
@@ -453,11 +484,24 @@ function draw() {
       cos(angle) * r;
     const y =
       sin(angle) * r;
-    attractPoint(x, y, offsets[i], smoothing);
     outline.push({ x, y });
   }
+  const normal = attractionNormal();
+  // Preserve a fixed distance for this preset, with an outer bound for larger shapes.
+  const lineDistance = Math.max(attraction.lineDistance,
+    ...outline.map(point => Math.hypot(point.x, point.y) + attraction.clearance * 2));
+  attraction.x = normal.x * lineDistance;
+  attraction.y = normal.y * lineDistance;
+  outline.forEach((point, i) => attractPoint(point.x, point.y, offsets[i], smoothing));
   const smoothed = smoothAttraction(offsets);
-  outline.forEach((point, i) => vertex(point.x + smoothed[i].x, point.y + smoothed[i].y));
+  outline.forEach((point, i) => {
+    let x = point.x + smoothed[i].x;
+    let y = point.y + smoothed[i].y;
+    // A changing tilt direction can leave old spring offsets across the new line.
+    const excess = x * normal.x + y * normal.y - (lineDistance - attraction.clearance);
+    if (excess > 0) { x -= normal.x * excess; y -= normal.y * excess; }
+    vertex(x, y);
+  });
   endShape(CLOSE);
   erase();
   ellipse(
@@ -467,7 +511,7 @@ function draw() {
     INNER_CIRCLE.radius * 2
   );
   noErase();
-  if (attraction.active) {
+  if (attraction.active && !uiHidden) {
     push();
     noFill();
     stroke('#1683ff88');
