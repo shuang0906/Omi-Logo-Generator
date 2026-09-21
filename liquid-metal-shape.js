@@ -1,7 +1,7 @@
 // Same time-zero polar geometry as script.js. The small noise offsets are
 // sampled from the existing seed-42 mask so the initial silhouette stays exact.
 window.OmiMetalShape = (() => {
-  const defaults = {
+  const snapshotDefaults = {
     baseRadius: 135, baseShapeThickness: 135, peakCount: 4, peakHeight: 20, valleyDepth: 10, speed: 0,
     rotation: 0, microWaveStrength: 1, baseShapeStrength: 1, baseShapeRotation: 0,
     innerX: -7, innerY: -3, innerRadius: 95,
@@ -18,6 +18,88 @@ window.OmiMetalShape = (() => {
       { amplitude: 8, frequency: 1, phase: -.8, type: 'cos' },
     ],
   };
+  const defaults = {
+  "rotation": 0,
+  "baseRadius": 141,
+  "baseShapeThickness": 136,
+  "speed": 0,
+  "baseShapeStrength": 1,
+  "baseShapeRotation": 45,
+  "microWaveStrength": 0,
+  "peakCount": 4,
+  "peakHeight": -60,
+  "valleyDepth": 0,
+  "peaks": [
+    {
+      "height": -0.55,
+      "angle": 74,
+      "width": 0.64
+    },
+    {
+      "height": -0.25,
+      "angle": 11,
+      "width": 0.98
+    },
+    {
+      "height": -0.35,
+      "angle": 195,
+      "width": 0.85
+    },
+    {
+      "height": 0.25,
+      "angle": 125,
+      "width": 0.48
+    },
+    {
+      "height": 2.4,
+      "angle": 47,
+      "width": 0.66
+    },
+    {
+      "height": 1,
+      "angle": 273,
+      "width": 1.28
+    },
+    {
+      "height": 0.65,
+      "angle": 110,
+      "width": 0.4
+    },
+    {
+      "height": 0.9,
+      "angle": 290,
+      "width": 0.55
+    }
+  ],
+  "waves": [
+    {
+      "amplitude": 9,
+      "frequency": 1,
+      "phase": -3.15,
+      "type": "sin"
+    },
+    {
+      "amplitude": 7.5,
+      "frequency": 3,
+      "phase": -1.2,
+      "type": "sin"
+    },
+    {
+      "amplitude": 4,
+      "frequency": 1,
+      "phase": -0.72,
+      "type": "cos"
+    }
+  ],
+  "innerX": -7,
+  "innerY": -3,
+  "innerRadius": 95,
+  "canvasWidth": 500,
+  "canvasHeight": 500,
+  "logoScale": 1,
+  "noiseSeed": 503285139
+};
+  const defaultAnimationTime = 51.787499999997856;
   const radians = degrees => degrees * Math.PI / 180;
   const peak = (angle, center, height, width) => {
     const distance = Math.atan2(Math.sin(angle - center), Math.cos(angle - center));
@@ -39,7 +121,7 @@ window.OmiMetalShape = (() => {
     const outline = new DOMParser().parseFromString(snapshot, 'image/svg+xml').querySelector('svg > path');
     const coordinates = [...outline.getAttribute('d').matchAll(/[ML]([\d.-]+) ([\d.-]+)/g)];
     const noise = coordinates.map((point, i) => Math.hypot(Number(point[1]) - 250, Number(point[2]) - 250)
-      - radius(defaults, i / coordinates.length * Math.PI * 2));
+      - radius(snapshotDefaults, i / coordinates.length * Math.PI * 2));
     if (noise.length !== 240) throw new Error('Invalid Omi outline');
     let cachedSeed, perlin;
     function importedNoise(state, angle, time) {
@@ -125,33 +207,33 @@ window.OmiMetalShape = (() => {
       return details;
     }
     function visibility() { peakGroups.forEach((group, i) => { group.hidden = i >= state.peakCount; }); }
-    const main = section('轮廓参数', true);
+    const main = section('Outline Parameters', true);
     for (const args of [
-      ['speed', 'Logo Speed · 轮廓速度', 0, 3, .05],
-      ['baseRadius', '基底厚度', 95, 200, 1], ['peakCount', '峰数量', 1, 8, 1],
-      ['baseShapeThickness', 'Base Shape 厚度', 95, 200, 1],
-      ['peakHeight', '峰高度', -60, 60, 1], ['valleyDepth', '谷深度', 0, 50, 1],
-      ['rotation', '整体旋转', 0, 360, 1], ['microWaveStrength', '微波强度', 0, 3, .05],
-      ['baseShapeStrength', '基底波形强度', 0, 3, .05], ['baseShapeRotation', '基底波形旋转', 0, 360, 1],
+      ['speed', 'Logo Speed', 0, 3, .05],
+      ['baseRadius', 'Base Thickness', 95, 200, 1], ['peakCount', 'Peak Count', 1, 8, 1],
+      ['baseShapeThickness', 'Base Shape Thickness', 95, 200, 1],
+      ['peakHeight', 'Peak Height', -60, 60, 1], ['valleyDepth', 'Valley Depth', 0, 50, 1],
+      ['rotation', 'Rotation', 0, 360, 1], ['microWaveStrength', 'Micro Wave Strength', 0, 3, .05],
+      ['baseShapeStrength', 'Base Shape Strength', 0, 3, .05], ['baseShapeRotation', 'Base Shape Rotation', 0, 360, 1],
     ]) slider(main, state, ...args);
     state.peaks.forEach((p, i) => {
-      const group = section(`峰 ${i + 1}`);
+      const group = section(`Peak ${i + 1}`);
       peakGroups.push(group);
-      slider(group, p, 'height', '高度倍率', -3, 3, .05);
-      slider(group, p, 'angle', '角度', 0, 360, 1);
-      slider(group, p, 'width', '宽度', .05, 1.5, .01);
+      slider(group, p, 'height', 'Height Multiplier', -3, 3, .05);
+      slider(group, p, 'angle', 'Angle', 0, 360, 1);
+      slider(group, p, 'width', 'Width', .05, 1.5, .01);
     });
     state.waves.forEach((wave, i) => {
-      const group = section(`基底波形 ${i + 1} · ${wave.type}`);
-      bindings.push(() => { group.querySelector('summary').textContent = `基底波形 ${i + 1} · ${wave.type}`; });
-      slider(group, wave, 'amplitude', '振幅', 0, 40, .5);
-      slider(group, wave, 'frequency', '频率', 1, 12, 1);
-      slider(group, wave, 'phase', '相位', -3.15, 3.15, .01);
+      const group = section(`Base Wave ${i + 1} · ${wave.type}`);
+      bindings.push(() => { group.querySelector('summary').textContent = `Base Wave ${i + 1} · ${wave.type}`; });
+      slider(group, wave, 'amplitude', 'Amplitude', 0, 40, .5);
+      slider(group, wave, 'frequency', 'Frequency', 1, 12, 1);
+      slider(group, wave, 'phase', 'Phase', -3.15, 3.15, .01);
     });
-    const hole = section('圆形镂空');
-    slider(hole, state, 'innerRadius', '半径', 0, 160, 1);
-    slider(hole, state, 'innerX', '水平偏移', -100, 100, 1);
-    slider(hole, state, 'innerY', '垂直偏移', -100, 100, 1);
+    const hole = section('Circular Cutout');
+    slider(hole, state, 'innerRadius', 'Radius', 0, 160, 1);
+    slider(hole, state, 'innerX', 'Horizontal Offset', -100, 100, 1);
+    slider(hole, state, 'innerY', 'Vertical Offset', -100, 100, 1);
     visibility();
     return (fresh = structuredClone(defaults)) => {
       for (const key of Object.keys(fresh)) {
@@ -212,7 +294,7 @@ vec4 omiMask(vec2 uv) {
   }
   function parseParameters(text) {
     const data = JSON.parse(text.replace(/^\uFEFF/, ''));
-    const fail = () => { throw new Error('请选择 index.html 导出的有效参数 TXT / JSON 文件'); };
+    const fail = () => { throw new Error('Please select a valid parameter TXT / JSON file exported from the logo editor.'); };
     const number = (value, min, max) => {
       if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) fail();
       return value;
@@ -224,7 +306,7 @@ vec4 omiMask(vec2 uv) {
       ['baseShapeStrength', 0, 3], ['baseShapeRotation', 0, 360], ['microWaveStrength', 0, 3],
       ['peakCount', 1, 8], ['peakHeight', -60, 60], ['valleyDepth', 0, 50],
     ]) state[key] = number(data.state[key], min, max);
-    if ('baseShapeThickness' in data.state) state.baseShapeThickness = number(data.state.baseShapeThickness, 95, 200);
+    state.baseShapeThickness = 'baseShapeThickness' in data.state ? number(data.state.baseShapeThickness, 95, 200) : 135;
     if (!Number.isInteger(state.peakCount)) fail();
     if (!Array.isArray(data.state.peaks) || data.state.peaks.length !== 8) fail();
     state.peaks = data.state.peaks.map(p => {
@@ -246,5 +328,5 @@ vec4 omiMask(vec2 uv) {
     if (!Number.isInteger(state.noiseSeed) || data.noise.octaves !== 2 || data.noise.falloff !== .5) fail();
     return { state, time: number(data.animationTime, 0, Number.MAX_SAFE_INTEGER) };
   }
-  return { create, controls, dynamicShader, parseParameters };
+  return { create, controls, dynamicShader, parseParameters, defaultAnimationTime };
 })();

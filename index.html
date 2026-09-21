@@ -209,9 +209,9 @@
   <div id="controls">
 
     <section aria-labelledby="import-parameters-title">
-      <h2 id="import-parameters-title" class="peak-title">导入 Logo 参数</h2>
+      <h2 id="import-parameters-title" class="peak-title">Import Logo Parameters</h2>
       <input id="import-parameters" type="file" accept=".txt,.json,text/plain,application/json" />
-      <p id="import-parameters-status" class="control-help" role="status">上传导出的 TXT，恢复图形及控制参数。</p>
+      <p id="import-parameters-status" class="control-help" role="status">Upload an exported TXT file to restore the shape and control settings.</p>
     </section>
 
     <section aria-labelledby="reference-title">
@@ -248,9 +248,9 @@
         min="95"
         max="200"
         step="1"
-        value="135"
+        value="141"
       />
-      <span id="base-thickness-value" class="value">135</span>
+      <span id="base-thickness-value" class="value">141</span>
     </div>
 
     <div class="global-row">
@@ -274,8 +274,8 @@
 
     <div class="global-row">
       <label for="micro-wave">Micro Wave</label>
-      <input id="micro-wave" type="range" min="0" max="3" step="0.05" value="1" />
-      <span id="micro-wave-value" class="value">1.00×</span>
+      <input id="micro-wave" type="range" min="0" max="3" step="0.05" value="0" />
+      <span id="micro-wave-value" class="value">0.00×</span>
     </div>
 
     <div class="global-row">
@@ -287,10 +287,10 @@
         min="-60"
         max="60"
         step="1"
-        value="24"
+        value="-60"
       />
 
-      <span id="peak-height-value" class="value">24</span>
+      <span id="peak-height-value" class="value">-60</span>
     </div>
 
     <div class="global-row">
@@ -302,36 +302,36 @@
         min="0"
         max="50"
         step="1"
-        value="18"
+        value="0"
       />
 
-      <span id="valley-depth-value" class="value">18</span>
+      <span id="valley-depth-value" class="value">0</span>
     </div>
 
     <button id="export-svg" type="button" disabled>Export SVG</button>
-    <button id="export-parameters" type="button" disabled>导出 TXT 参数</button>
+    <button id="export-parameters" type="button" disabled>Export Parameters (TXT)</button>
     <section aria-labelledby="recording-animation-title">
-      <h2 id="recording-animation-title" class="peak-title">录制动画</h2>
-      <label class="control-help"><input id="recording-animation-enabled" type="checkbox" checked /> 录制时自动调整参数</label>
+      <h2 id="recording-animation-title" class="peak-title">Record Animation</h2>
+      <label class="control-help"><input id="recording-animation-enabled" type="checkbox" checked /> Automatically adjust parameters while recording</label>
       <div class="count-row">
         <label for="recording-speed">Speed → x</label>
         <input id="recording-speed" type="number" min="0" max="3" step="0.05" value="1" />
       </div>
       <div class="count-row">
-        <label for="recording-duration">过渡秒数 y</label>
+        <label for="recording-duration">Duration y (s)</label>
         <input id="recording-duration" type="number" min="0" max="3600" step="0.1" value="3" />
       </div>
       <div class="count-row">
         <label for="recording-strength">Strength → z</label>
         <input id="recording-strength" type="number" min="0" max="3" step="0.05" value="0" />
       </div>
-      <p id="recording-animation-status" class="control-help" role="status">点击录制按钮后，Speed 立即变为 x，Strength 在 y 秒内线性变为 z。停止录制后保留当前值。</p>
+      <p id="recording-animation-status" class="control-help" role="status">When recording starts, Speed changes to x immediately and Strength transitions linearly to z over y seconds. Current values are kept when recording stops.</p>
     </section>
     <button id="export-10-svg" type="button" disabled>export 10 svg</button>
-    <button id="toggle-guides" type="button" aria-pressed="true">Turn off guides</button>
+    <button id="toggle-guides" type="button" aria-pressed="false">Turn on guides</button>
 
     <p class="control-help">
-      <label><input id="keep-editing" type="checkbox" /> 保持编辑模式（半透明蓝色）</label>
+      <label><input id="keep-editing" type="checkbox" /> Keep editing mode enabled (translucent blue)</label>
     </p>
 
     <div id="peak-controls"></div>
@@ -340,8 +340,8 @@
     <h2 id="base-shape-title" class="peak-title">Base Shape</h2>
     <div class="global-row">
       <label for="base-shape-thickness">Base Thickness</label>
-      <input id="base-shape-thickness" type="range" min="95" max="200" step="1" value="135" />
-      <span id="base-shape-thickness-value" class="value">135</span>
+      <input id="base-shape-thickness" type="range" min="95" max="200" step="1" value="136" />
+      <span id="base-shape-thickness-value" class="value">136</span>
     </div>
     <p class="control-help">Independent Base Shape thickness. 135 adds no offset; Strength controls its effect on the outline.</p>
     <p class="control-help">Blue dashed line: base shape outline. Gray dashed line: base radius.</p>
@@ -358,7 +358,7 @@
 </div>
 
 
-<script src="script.js"></script>
+<script src="script.js?v=ccb90b91f914"></script>
 
 </body>
 </html>

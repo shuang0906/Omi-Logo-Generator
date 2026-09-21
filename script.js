@@ -9,44 +9,89 @@ let LOGO_SCALE = 1;
 const CANVAS_SIZE = { width: 500 * LOGO_SCALE, height: 500 * LOGO_SCALE };
 
 const state = {
-  isEditing: false,
-  keepEditing: false,
-  rotation: 0,
-  showGuides: true,
-  baseRadius: 135,
-  baseShapeThickness: 135,
-  speed: 0,
-  baseShapeStrength: 1,
-  baseShapeRotation: 0,
-  baseShapeWaves: [
-    { amplitude: 13, frequency: 2, phase: 0.5, type: "sin" },
-    { amplitude: 9, frequency: 3, phase: -1.2, type: "sin" },
-    { amplitude: 8, frequency: 1, phase: -0.8, type: "cos" }
+  "isEditing": false,
+  "keepEditing": false,
+  "rotation": 0,
+  "showGuides": false,
+  "baseRadius": 141,
+  "baseShapeThickness": 136,
+  "speed": 0,
+  "baseShapeStrength": 1,
+  "baseShapeRotation": 45,
+  "baseShapeWaves": [
+    {
+      "amplitude": 9,
+      "frequency": 1,
+      "phase": -3.15,
+      "type": "sin"
+    },
+    {
+      "amplitude": 7.5,
+      "frequency": 3,
+      "phase": -1.2,
+      "type": "sin"
+    },
+    {
+      "amplitude": 4,
+      "frequency": 1,
+      "phase": -0.72,
+      "type": "cos"
+    }
   ],
-  microWaveStrength: 1,
-  peakCount: 4,
-
-  peakHeight: 20,
-  valleyDepth: 10,
-
-  peaks: [
-    { height: 1.00, angle: 20,  width: 0.55 },
-    { height: 0.70, angle: 145, width: 0.42 },
-    { height: 1.20, angle: 250, width: 0.50 },
-    { height: 0.45, angle: 325, width: 0.36 },
-    { height: 0.80, angle: 70,  width: 0.50 },
-    { height: 1.10, angle: 200, width: 0.45 },
-    { height: 0.65, angle: 110, width: 0.40 },
-    { height: 0.90, angle: 290, width: 0.55 }
+  "microWaveStrength": 0,
+  "peakCount": 4,
+  "peakHeight": -60,
+  "valleyDepth": 0,
+  "peaks": [
+    {
+      "height": -0.55,
+      "angle": 74,
+      "width": 0.64
+    },
+    {
+      "height": -0.25,
+      "angle": 11,
+      "width": 0.98
+    },
+    {
+      "height": -0.35,
+      "angle": 195,
+      "width": 0.85
+    },
+    {
+      "height": 0.25,
+      "angle": 125,
+      "width": 0.48
+    },
+    {
+      "height": 2.4,
+      "angle": 47,
+      "width": 0.66
+    },
+    {
+      "height": 1,
+      "angle": 273,
+      "width": 1.28
+    },
+    {
+      "height": 0.65,
+      "angle": 110,
+      "width": 0.4
+    },
+    {
+      "height": 0.9,
+      "angle": 290,
+      "width": 0.55
+    }
   ]
 };
 
 
-let time = 0;
+let time = 51.787499999997856;
 let frameVertices = [];
 let frameParameters = null;
-const canvasView = { x: 0, y: 0, zoom: 1 };
-let logoNoiseSeed = crypto.getRandomValues(new Uint32Array(1))[0];
+const canvasView = {"x": -36.05453853325014, "y": -41.42685945874289, "zoom": 1.099029165595923};
+let logoNoiseSeed = 503285139;
 let syncCanvasNavigation = () => {};
 const INNER_CIRCLE = { x: -7, y: -3, radius: 95 };
 
@@ -389,9 +434,9 @@ importParametersInput.addEventListener("change", async () => {
     syncLogoControls();
     syncCanvasNavigation();
     finishLogoChange();
-    importParametersStatus.textContent = `已恢复：${file.name}`;
+    importParametersStatus.textContent = `Restored: ${file.name}`;
   } catch (error) {
-    importParametersStatus.textContent = `导入失败：${error.message}`;
+    importParametersStatus.textContent = `Import failed: ${error.message}`;
   } finally {
     importParametersInput.value = "";
     importParametersInput.disabled = false;
@@ -399,7 +444,7 @@ importParametersInput.addEventListener("change", async () => {
 });
 
 function validateLogoParameters(data) {
-  const fail = () => { throw new Error("请选择本工具导出的有效参数 TXT 文件。"); };
+  const fail = () => { throw new Error("Please select a valid parameter TXT file exported by this tool."); };
   const number = (value, min, max) => {
     if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) fail();
   };
@@ -795,6 +840,7 @@ function setup() {
     "canvas-container"
   );
 
+  syncLogoControls();
   setupCanvasNavigation(canvas.elt);
 
   noiseSeed(logoNoiseSeed);
@@ -966,9 +1012,9 @@ function updateRecordingAnimation() {
           firstFrame: capture.recorder.capturedCount,
           framerate: capture.mergedOptions.framerate
         };
-        recordingAnimationStatus.textContent = "录制中：正在调整 Strength…";
+        recordingAnimationStatus.textContent = "Recording: adjusting Strength…";
       } else {
-        recordingAnimationStatus.textContent = "录制自动调整未启用：请检查 x、y、z 的范围。";
+        recordingAnimationStatus.textContent = "Automatic adjustment is disabled for this recording. Check the ranges for x, y, and z.";
       }
     }
     recordingAnimationInputs.forEach(input => { input.disabled = true; });
@@ -984,13 +1030,13 @@ function updateRecordingAnimation() {
     document.getElementById("base-shape-value").textContent = `${state.baseShapeStrength.toFixed(2)}×`;
     if (progress === 1) {
       recordingTransition = null;
-      recordingAnimationStatus.textContent = "Strength 已到达目标值，录制继续。";
+      recordingAnimationStatus.textContent = "Strength has reached its target. Recording continues.";
     }
   }
   if (!active && recordingWasActive) {
     recordingTransition = null;
     recordingAnimationInputs.forEach(input => { input.disabled = false; });
-    recordingAnimationStatus.textContent = "录制已停止，保留当前参数。";
+    recordingAnimationStatus.textContent = "Recording stopped. Current parameters have been kept.";
   }
   recordingWasActive = active;
 }
@@ -1215,7 +1261,7 @@ function draw() {
     drawingContext.save();
     drawingContext.resetTransform();
     drawingContext.globalCompositeOperation = "destination-over";
-    drawingContext.fillStyle = BG;
+    drawingContext.fillStyle = '#ffffff';
     drawingContext.fillRect(0, 0, drawingContext.canvas.width, drawingContext.canvas.height);
     drawingContext.restore();
   }
