@@ -111,6 +111,7 @@
       <button id="playback" disabled aria-pressed="false">Start</button>
       <button id="reset" disabled>Reset View</button>
       <button id="toggle-skybox" disabled aria-pressed="false">Hide Skybox</button>
+      <button id="hide-ui" disabled title="Tap the scene or press Escape to show controls again">Hide UI</button>
     </div>
   </div>
   </div>
@@ -328,6 +329,26 @@
       renderer.toneMappingExposure = 1.2;
       document.getElementById('stage').append(renderer.domElement);
       renderer.domElement.setAttribute('aria-label', '3D Omi logo. Drag to rotate; pinch or scroll to zoom.');
+      renderer.domElement.tabIndex = 0;
+      const uiControls = document.querySelector('.controls');
+      const caption = document.querySelector('.caption');
+      const hideUI = document.getElementById('hide-ui');
+      let uiHidden = false;
+      function setUIHidden(hidden) {
+        uiHidden = hidden;
+        uiControls.hidden = caption.hidden = hidden;
+        (hidden ? renderer.domElement : hideUI).focus({ preventScroll: true });
+      }
+      hideUI.addEventListener('click', () => setUIHidden(true));
+      renderer.domElement.addEventListener('click', () => {
+        if (uiHidden) setUIHidden(false);
+      });
+      document.addEventListener('keydown', event => {
+        if (uiHidden && ['Escape', 'Enter', ' '].includes(event.key)) {
+          event.preventDefault();
+          setUIHidden(false);
+        }
+      });
       const camera = new THREE.PerspectiveCamera(38, 1, 1, 3000);
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 380; controls.maxDistance = 1500;
@@ -359,9 +380,11 @@
       mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
       // Seat the image at the circular throat of the ring. A rectangular plane
       // behind the ring would peek around its outside edge when the view rotates.
+      // Maximum motion-driven view shift in radians; keep the effect subtle.
+      const skyboxMotion = { target: new THREE.Vector2(), maxYaw: radians(4), maxPitch: radians(3), response: 6 };
       const holeImageMaterial = new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
-        uniforms: { panorama: { value: null } },
+        uniforms: { panorama: { value: null }, motionAngles: { value: new THREE.Vector2() } },
         vertexShader: `
           varying vec3 worldPoint;
           void main() {
@@ -372,9 +395,17 @@
         `,
         fragmentShader: `
           uniform sampler2D panorama;
+          uniform vec2 motionAngles;
           varying vec3 worldPoint;
           void main() {
             vec3 direction = normalize(worldPoint - cameraPosition);
+            float pitchCos = cos(motionAngles.y), pitchSin = sin(motionAngles.y);
+            direction = vec3(direction.x,
+              pitchCos * direction.y - pitchSin * direction.z,
+              pitchSin * direction.y + pitchCos * direction.z);
+            float yawCos = cos(motionAngles.x), yawSin = sin(motionAngles.x);
+            direction = vec3(yawCos * direction.x + yawSin * direction.z,
+              direction.y, -yawSin * direction.x + yawCos * direction.z);
             vec2 uv = vec2(
               atan(direction.z, direction.x) / 6.28318530718 + 0.5 + 0.05,
               asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5 + 0.02
@@ -493,6 +524,7 @@
       }
 
       function calibrateMotion() {
+        skyboxMotion.target.set(0, 0);
         motion.baseline = null;
         motion.samples = [];
         motion.filtered = null;
@@ -503,6 +535,7 @@
       }
 
       function stopMotion() {
+        skyboxMotion.target.set(0, 0);
         motion.enabled = false;
         controls.enabled = true;
         clearTimeout(motion.timer);
@@ -539,6 +572,10 @@
         const distance = Math.hypot(x, y);
         const limit = 240;
         const amount = Math.max(0, Math.min(1, (distance - 10) / (limit - 10)));
+        // Use calibrated, screen-oriented input before the shape target is normalized.
+        const viewStrength = amount / Math.max(distance, 0.001);
+        skyboxMotion.target.set(-x * viewStrength * skyboxMotion.maxYaw,
+          -y * viewStrength * skyboxMotion.maxPitch);
         attraction.intensity = amount * amount * (3 - 2 * amount);
         if (distance > 0.001) {
           x *= attraction.lineDistance / distance;
@@ -616,6 +653,8 @@
         const changing = playing || attraction.active || offsets.some(p => p.x !== 0 || p.y !== 0);
         if (changing && accumulated >= 1 / 30) { rebuild(accumulated); accumulated = 0; }
         if (!changing) accumulated = 0;
+        holeImageMaterial.uniforms.motionAngles.value.lerp(skyboxMotion.target,
+          1 - Math.exp(-skyboxMotion.response * dt));
         controls.update(); renderer.render(scene, camera);
       }
       renderer.setAnimationLoop(frame);
