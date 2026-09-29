@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omi / Inflated Ring</title>
+  <title>Omi / Coins Through the Ring</title>
   <style>
     * {
       box-sizing: border-box
@@ -102,10 +102,10 @@
 
 <body>
   <div id="stage"></div>
-  <div class="caption">OMI / INFLATED RING</div>
+  <div class="caption">OMI / THROUGH THE RING</div>
   <div class="controls">
-    <p>Drag to rotate ? Scroll or pinch to zoom<br>Switch to Attract to deform the outline.</p>
-    <div class="buttons"><button id="playback" disabled aria-pressed="false">Start</button><button id="mode"
+    <p>A silver orbit behind the ring.<br>Drag to rotate ? Scroll or pinch to zoom.</p>
+    <div class="buttons"><button id="playback" disabled aria-pressed="true">Pause</button><button id="mode"
         disabled>Mode: Rotate</button><button id="reset" disabled>Reset View</button></div>
   </div>
   <div id="status" role="status">Loading 3D preview...</div>
@@ -196,7 +196,7 @@
       const radians = angle => angle * Math.PI / 180;
       const attraction = { active: false, x: 0, y: 0, radius: 300, strength: 0.6, maxPull: 200 };
       const offsets = Array.from({ length: 240 }, () => ({ x: 0, y: 0 }));
-      let time = 0, elapsed = 0, playing = false, mode = 'rotate';
+      let time = 0, elapsed = 0, playing = true, mode = 'rotate';
       function attractionNormal() {
         const length = Math.hypot(attraction.x, attraction.y);
         // At the canvas center, use a horizontal target line.
@@ -316,7 +316,7 @@
       }
       const scene = new THREE.Scene();
       scene.background = new THREE.Color('#ffffff');
-      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
       renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.2;
@@ -351,6 +351,80 @@
       }
       const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
       mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
+      // Plain silver coins share untextured metal geometry and material.
+      const coinRoot = new THREE.Group();
+      scene.add(coinRoot);
+      // Write only the hole's projected silhouette to the stencil buffer.
+      // This invisible aperture prevents coins appearing outside the logo,
+      // including when the view is rotated or zoomed.
+      const apertureMaterial = new THREE.MeshBasicMaterial({
+        side: THREE.DoubleSide,
+        colorWrite: false, depthWrite: false, depthTest: false,
+        stencilWrite: true, stencilRef: 1,
+        stencilFunc: THREE.AlwaysStencilFunc,
+        stencilFail: THREE.KeepStencilOp,
+        stencilZFail: THREE.KeepStencilOp,
+        stencilZPass: THREE.ReplaceStencilOp
+      });
+      const aperture = new THREE.Mesh(new THREE.CircleGeometry(95, 160), apertureMaterial);
+      aperture.position.set(-7, 3, 0);
+      aperture.renderOrder = -2;
+      scene.add(aperture);
+      const coinCount = 14;
+      const coinSize = 2.6;
+      const coinSpeed = 1 / 90; // A slow, continuous orbit every 90 seconds.
+      const silver = new THREE.MeshStandardMaterial({
+        color: 0xe3e6e8, metalness: 1, roughness: .24,
+        stencilWrite: true, stencilWriteMask: 0, stencilRef: 1,
+        stencilFunc: THREE.EqualStencilFunc,
+        stencilFail: THREE.KeepStencilOp,
+        stencilZFail: THREE.KeepStencilOp,
+        stencilZPass: THREE.KeepStencilOp
+      });
+      // A rounded bevel catches the light on otherwise plain silver discs.
+      const coinGeometry = new THREE.LatheGeometry([
+        new THREE.Vector2(0, -1.25),
+        new THREE.Vector2(12.4, -1.25),
+        new THREE.Vector2(12.85, -1.05),
+        new THREE.Vector2(13, -.65),
+        new THREE.Vector2(13, .65),
+        new THREE.Vector2(12.85, 1.05),
+        new THREE.Vector2(12.4, 1.25),
+        new THREE.Vector2(0, 1.25)
+      ], 80);
+      coinGeometry.rotateX(Math.PI / 2);
+      const coins = [];
+      let queuePhase = 0;
+      function poseCoin(coin) {
+        const angle = (coin.offset + queuePhase) * Math.PI * 2;
+        // The complete orbit stays behind the ring, revealed only by its hole.
+        coin.mesh.position.set(
+          13 + 140 * Math.cos(angle),
+          -97 + 134.4 * Math.sin(angle),
+          -110 + 39.2 * Math.sin(angle)
+        );
+        // Gradually roll each face from edge-on to face-on around the circle.
+        // Periodic angles keep the loop seamless, including at the wrap point.
+        coin.mesh.rotation.set(
+          .22 + .5 * Math.cos(angle),
+          .78 + .85 * Math.sin(angle),
+          angle + Math.PI / 2
+        );
+        coin.mesh.scale.setScalar(coinSize);
+      }
+      for (let i = 0; i < coinCount; i++) {
+        const body = new THREE.Group();
+        const disc = new THREE.Mesh(coinGeometry, silver);
+        disc.renderOrder = -1;
+        body.add(disc);
+        coinRoot.add(body);
+        const coin = { mesh: body, offset: i / coinCount };
+        poseCoin(coin); coins.push(coin);
+      }
+      function updateCoins(dt) {
+        queuePhase = (queuePhase + dt * coinSpeed) % 1;
+        for (const coin of coins) poseCoin(coin);
+      }
       // Closed elliptical sections join the exact outer outline to the circular hole.
       // Shared wraparound vertices give continuous normals with no caps or flat faces.
       const tubeSegments = 48;
@@ -435,7 +509,7 @@
       function frame(now) {
         if (document.hidden) { last = null; return; }
         const dt = last === null ? 0 : Math.min((now - last) / 1000, .05); last = now; accumulated += dt;
-        if (playing) { elapsed += dt; time += dt * 1.5; state.baseShapeStrength = Math.min(1, elapsed / 3); }
+        if (playing) { updateCoins(dt); elapsed += dt; time += dt * 1.5; state.baseShapeStrength = Math.min(1, elapsed / 3); }
         const changing = playing || attraction.active || offsets.some(p => p.x !== 0 || p.y !== 0);
         if (changing && accumulated >= 1 / 30) { rebuild(accumulated); accumulated = 0; }
         if (!changing) accumulated = 0;

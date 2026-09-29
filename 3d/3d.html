@@ -332,7 +332,23 @@
       room.dispose(); pmrem.dispose();
       scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
       const key = new THREE.DirectionalLight(0xffffff, 4); key.position.set(-200, 400, 500); scene.add(key);
-      const material = new THREE.MeshStandardMaterial({ color: 0x30353c, metalness: .7, roughness: .28 });
+      const normalMap = new THREE.TextureLoader().load('./assets/bricks_wall_15_normal_gl_1k.png');
+      normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+      normalMap.colorSpace = THREE.NoColorSpace;
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x28292b, metalness: .7, roughness: .28,
+        normalMap, normalScale: new THREE.Vector2(.3, .3)
+      });
+      function applyTextureUVs(geometry) {
+        const position = geometry.getAttribute('position');
+        const uv = new Float32Array(position.count * 2);
+        const textureSize = 200; // Smaller values repeat the texture more densely.
+        for (let i = 0; i < position.count; i++) {
+          uv[i * 2] = position.getX(i) / textureSize;
+          uv[i * 2 + 1] = position.getY(i) / textureSize;
+        }
+        geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      }
       const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
       mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
       function rebuild(dt) {
@@ -350,6 +366,7 @@
           curveSegments: 64
         });
         geometry.translate(0, 0, -19);
+        applyTextureUVs(geometry);
         mesh.geometry.dispose(); mesh.geometry = geometry;
       }
       function resetView() {
