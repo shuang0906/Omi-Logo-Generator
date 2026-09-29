@@ -110,6 +110,7 @@
       <button id="motion-calibrate" disabled>Calibrate</button>
       <button id="playback" disabled aria-pressed="false">Start</button>
       <button id="reset" disabled>Reset View</button>
+      <button id="toggle-skybox" disabled aria-pressed="false">Hide Skybox</button>
     </div>
   </div>
   </div>
@@ -465,6 +466,12 @@
       const playback = document.getElementById('playback');
       playback.addEventListener('click', () => { playing = !playing; playback.textContent = playing ? 'Pause' : 'Start'; playback.setAttribute('aria-pressed', String(playing)); });
       document.getElementById('reset').addEventListener('click', resetView);
+      const skyboxButton = document.getElementById('toggle-skybox');
+      skyboxButton.addEventListener('click', () => {
+        holeImageMesh.visible = !holeImageMesh.visible;
+        skyboxButton.textContent = holeImageMesh.visible ? 'Hide Skybox' : 'Show Skybox';
+        skyboxButton.setAttribute('aria-pressed', String(!holeImageMesh.visible));
+      });
       // Accelerometer input replaces the pointer; calibration supports a comfortable grip.
       const motionEnable = document.getElementById('motion-enable');
       const motionCalibrate = document.getElementById('motion-calibrate');
