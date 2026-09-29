@@ -107,11 +107,11 @@
     <p>Drag to rotate ? Scroll or pinch to zoom<br>Switch to Attract to deform the outline.</p>
     <div class="buttons"><button id="playback" disabled aria-pressed="false">Start</button><button id="mode"
         disabled>Mode: Rotate</button><button id="reset" disabled>Reset View</button>
-      <button id="upload-hole-image" disabled>Add Hole Image</button>
-      <button id="remove-hole-image" disabled>Remove Image</button>
+      <button id="upload-hole-image" disabled>Add Skybox</button>
+      <button id="remove-hole-image" disabled>Remove Skybox</button>
     </div>
-    <input id="hole-image-file" type="file" accept="image/*" hidden>
-    <p id="hole-image-status" role="status">Upload an image to show only through the hole.</p>
+    <input id="hole-image-file" type="file" accept="image/jpeg,image/png,image/webp,.hdr" hidden>
+    <p id="hole-image-status" role="status">Upload a 2:1 panorama (JPG, PNG, WebP or HDR). Visible only through the hole.</p>
   </div>
   <div id="status" role="status">Loading 3D preview...</div>
   <script type="module">
@@ -358,8 +358,31 @@
       mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
       // Seat the image at the circular throat of the ring. A rectangular plane
       // behind the ring would peek around its outside edge when the view rotates.
-      const holeImageMaterial = new THREE.MeshBasicMaterial({
-        side: THREE.DoubleSide, toneMapped: false, transparent: true
+      const holeImageMaterial = new THREE.ShaderMaterial({
+        side: THREE.DoubleSide,
+        uniforms: { panorama: { value: null } },
+        vertexShader: `
+          varying vec3 worldPoint;
+          void main() {
+            vec4 world = modelMatrix * vec4(position, 1.0);
+            worldPoint = world.xyz;
+            gl_Position = projectionMatrix * viewMatrix * world;
+          }
+        `,
+        fragmentShader: `
+          uniform sampler2D panorama;
+          varying vec3 worldPoint;
+          void main() {
+            vec3 direction = normalize(worldPoint - cameraPosition);
+            vec2 uv = vec2(
+              atan(direction.z, direction.x) / 6.28318530718 + 0.5,
+              asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5
+            );
+            gl_FragColor = vec4(texture2D(panorama, uv).rgb, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }
+        `
       });
       const holeImageMesh = new THREE.Mesh(new THREE.CircleGeometry(95, 240), holeImageMaterial);
       holeImageMesh.position.set(-7, 3, 0);
@@ -377,23 +400,24 @@
         const url = URL.createObjectURL(file);
         holeImageStatus.textContent = 'Loading image...';
         try {
-          const image = new Image();
-          image.src = url;
-          await image.decode();
-          if (request !== holeImageRequest) return;
-          const texture = new THREE.Texture(image);
-          texture.colorSpace = THREE.SRGBColorSpace;
-          // Center-crop to cover the circular opening without stretching.
-          const aspect = image.naturalWidth / image.naturalHeight;
-          texture.repeat.set(Math.min(1, 1 / aspect), Math.min(1, aspect));
-          texture.offset.set((1 - texture.repeat.x) / 2, (1 - texture.repeat.y) / 2);
-          texture.needsUpdate = true;
-          holeImageMaterial.map?.dispose();
-          holeImageMaterial.map = texture;
+          const isHDR = /\.hdr$/i.test(file.name);
+          let texture;
+          if (isHDR) {
+            const { RGBELoader } = await import('three/addons/loaders/RGBELoader.js');
+            texture = await new RGBELoader().loadAsync(url);
+          } else {
+            texture = await new THREE.TextureLoader().loadAsync(url);
+            texture.colorSpace = THREE.SRGBColorSpace;
+          }
+          if (request !== holeImageRequest) { texture.dispose(); return; }
+          texture.wrapS = THREE.RepeatWrapping;
+          holeImageMaterial.uniforms.panorama.value?.dispose();
+          holeImageMaterial.uniforms.panorama.value = texture;
+          holeImageMaterial.toneMapped = isHDR;
           holeImageMaterial.needsUpdate = true;
           holeImageMesh.visible = true;
           removeHoleImage.disabled = false;
-          holeImageStatus.textContent = `${file.name} · Visible only through the hole.`;
+          holeImageStatus.textContent = `${file.name} · Skybox visible only through the hole. Drag to look around.`;
         } catch {
           if (request === holeImageRequest) holeImageStatus.textContent = 'Unable to load this image. Please choose another image.';
         } finally {
@@ -404,12 +428,12 @@
       removeHoleImage.addEventListener('click', () => {
         holeImageRequest++;
         holeImageMesh.visible = false;
-        holeImageMaterial.map?.dispose();
-        holeImageMaterial.map = null;
+        holeImageMaterial.uniforms.panorama.value?.dispose();
+        holeImageMaterial.uniforms.panorama.value = null;
         holeImageMaterial.needsUpdate = true;
         holeImageFile.value = '';
         removeHoleImage.disabled = true;
-        holeImageStatus.textContent = 'Upload an image to show only through the hole.';
+        holeImageStatus.textContent = 'Upload a 2:1 panorama (JPG, PNG, WebP or HDR). Visible only through the hole.';
       });
       // Closed elliptical sections join the exact outer outline to the circular hole.
       // Shared wraparound vertices give continuous normals with no caps or flat faces.
