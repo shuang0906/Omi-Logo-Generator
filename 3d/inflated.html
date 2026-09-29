@@ -106,7 +106,12 @@
   <div class="controls">
     <p>Drag to rotate ? Scroll or pinch to zoom<br>Switch to Attract to deform the outline.</p>
     <div class="buttons"><button id="playback" disabled aria-pressed="false">Start</button><button id="mode"
-        disabled>Mode: Rotate</button><button id="reset" disabled>Reset View</button></div>
+        disabled>Mode: Rotate</button><button id="reset" disabled>Reset View</button>
+      <button id="upload-hole-image" disabled>Add Hole Image</button>
+      <button id="remove-hole-image" disabled>Remove Image</button>
+    </div>
+    <input id="hole-image-file" type="file" accept="image/*" hidden>
+    <p id="hole-image-status" role="status">Upload an image to show only through the hole.</p>
   </div>
   <div id="status" role="status">Loading 3D preview...</div>
   <script type="module">
@@ -351,6 +356,61 @@
       }
       const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
       mesh.rotation.z = -radians(state.rotation); scene.add(mesh);
+      // Seat the image at the circular throat of the ring. A rectangular plane
+      // behind the ring would peek around its outside edge when the view rotates.
+      const holeImageMaterial = new THREE.MeshBasicMaterial({
+        side: THREE.DoubleSide, toneMapped: false, transparent: true
+      });
+      const holeImageMesh = new THREE.Mesh(new THREE.CircleGeometry(95, 240), holeImageMaterial);
+      holeImageMesh.position.set(-7, 3, 0);
+      holeImageMesh.visible = false;
+      mesh.add(holeImageMesh);
+      const holeImageFile = document.getElementById('hole-image-file');
+      const removeHoleImage = document.getElementById('remove-hole-image');
+      const holeImageStatus = document.getElementById('hole-image-status');
+      let holeImageRequest = 0;
+      document.getElementById('upload-hole-image').addEventListener('click', () => holeImageFile.click());
+      holeImageFile.addEventListener('change', async () => {
+        const file = holeImageFile.files[0];
+        if (!file) return;
+        const request = ++holeImageRequest;
+        const url = URL.createObjectURL(file);
+        holeImageStatus.textContent = 'Loading image...';
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          if (request !== holeImageRequest) return;
+          const texture = new THREE.Texture(image);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          // Center-crop to cover the circular opening without stretching.
+          const aspect = image.naturalWidth / image.naturalHeight;
+          texture.repeat.set(Math.min(1, 1 / aspect), Math.min(1, aspect));
+          texture.offset.set((1 - texture.repeat.x) / 2, (1 - texture.repeat.y) / 2);
+          texture.needsUpdate = true;
+          holeImageMaterial.map?.dispose();
+          holeImageMaterial.map = texture;
+          holeImageMaterial.needsUpdate = true;
+          holeImageMesh.visible = true;
+          removeHoleImage.disabled = false;
+          holeImageStatus.textContent = `${file.name} · Visible only through the hole.`;
+        } catch {
+          if (request === holeImageRequest) holeImageStatus.textContent = 'Unable to load this image. Please choose another image.';
+        } finally {
+          URL.revokeObjectURL(url);
+          if (request === holeImageRequest) holeImageFile.value = '';
+        }
+      });
+      removeHoleImage.addEventListener('click', () => {
+        holeImageRequest++;
+        holeImageMesh.visible = false;
+        holeImageMaterial.map?.dispose();
+        holeImageMaterial.map = null;
+        holeImageMaterial.needsUpdate = true;
+        holeImageFile.value = '';
+        removeHoleImage.disabled = true;
+        holeImageStatus.textContent = 'Upload an image to show only through the hole.';
+      });
       // Closed elliptical sections join the exact outer outline to the circular hole.
       // Shared wraparound vertices give continuous normals with no caps or flat faces.
       const tubeSegments = 48;
@@ -445,6 +505,7 @@
       renderer.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); renderer.setAnimationLoop(null); status.hidden = false; status.textContent = 'Graphics context lost. Reload to continue.'; });
       status.hidden = true;
       document.querySelectorAll('button').forEach(button => button.disabled = false);
+      removeHoleImage.disabled = true;
     } catch (error) {
       console.error(error);
       status.textContent = 'Unable to load the 3D preview. Check your connection and WebGL support, then reload.';

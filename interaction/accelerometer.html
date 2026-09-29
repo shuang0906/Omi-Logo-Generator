@@ -139,7 +139,7 @@ document.addEventListener('keydown', event => {
     setUIHidden(false);
   }
 });
-const attraction = { active: false, x: 0, y: 0, radius: 300, strength: 0.6, maxPull: 200, lineDistance: 260, clearance: 16, intensity: 0 };
+const attraction = { active: false, x: 0, y: 0, radius: 350, strength: 0.6, maxPull: 250, lineDistance: 260, clearance: 16, intensity: 0 };
 const offsets = Array.from({ length: 240 }, () => ({ x: 0, y: 0 }));
 let forceTimestamp = null;
 
@@ -376,7 +376,7 @@ function draw() {
     const seconds = lastTimestamp === null ? 0 : Math.min((now - lastTimestamp) / 1000, 0.1);
     lastTimestamp = now;
     elapsed += seconds;
-    time += seconds * 1.5;
+    time += seconds * 0.75;
     state.baseShapeStrength = Math.min(1, elapsed / 3);
   }
   clear();
