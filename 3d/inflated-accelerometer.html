@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omi / Inflated Motion</title>
+  <title>Omi Motion Demo</title>
   <style>
     * {
       box-sizing: border-box
@@ -16,9 +16,10 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      font-family: Arial, Helvetica, sans-serif;
+      color: #7a7979;
+      font: 13px/1.4 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+      font-weight: 600;      
       background: #fff;
-      color: #000
     }
 
     #stage {
@@ -33,53 +34,149 @@
 
     .caption {
       position: fixed;
-      top: 24px;
-      left: 24px;
+      top: 12px;
+      left: 12px;
       pointer-events: none;
-      font-size: 12px;
-      letter-spacing: .15em
     }
 
     .controls {
       position: fixed;
-      bottom: max(24px, env(safe-area-inset-bottom));
-      left: 50%;
-      transform: translateX(-50%);
-      width: min(94%, 500px);
-      text-align: center
+      z-index: 2;
+      top: max(12px, env(safe-area-inset-top));
+      right: max(12px, env(safe-area-inset-right));
+      width: 280px;
+      padding: 0 0 8px;
+      background: transparent;
+      border: 0;
+      color-scheme: light;
     }
 
-    .buttons {
-      display: flex;
+    .controls[hidden], .caption[hidden] { display: none; }
+    .panel-title {
+      margin: 0 0 5px;
+      padding: 9px 12px;
+      background: transparent;
+      color: #333;
+      font-size: 13px;
+      letter-spacing: .06em;
+    }
+    .control-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      align-items: center;
       gap: 8px;
-      justify-content: center;
-      flex-wrap: wrap
+      min-height: 36px;
+      padding: 3px 10px;
     }
-
+    .slider-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .slider-control output {
+      min-width: 42px;
+      padding: 4px;
+      background: #eee;
+      color: #555;
+      text-align: center;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      appearance: none;
+      width: 100%;
+      min-width: 0;
+      height: 20px;
+      margin: 0;
+      cursor: ew-resize;
+      background: transparent;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px;
+      background: linear-gradient(to right, #666 var(--fill, 0%), #ddd var(--fill, 0%));
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 6px;
+      height: 14px;
+      margin-top: -4px;
+      background: #555;
+      border-radius: 0;
+    }
+    input[type="range"]::-moz-range-track { height: 6px; background: #ddd; }
+    input[type="range"]::-moz-range-progress { height: 6px; background: #666; }
+    input[type="range"]::-moz-range-thumb { width: 6px; height: 14px; background: #555; border: 0; border-radius: 0; }
     button {
-      padding: 12px 20px;
-      min-height: 44px;
-      background: #ffffffdd;
-      border: 1px solid #c8c9cb;
-      border-radius: 24px;
-      color: inherit;
+      min-height: 20px;
+      padding: 2px 4px;
+      border: 1px solid #ccc;
+      border-radius: 0;
+      background: #ffffffb3;
+      color: #333;
       cursor: pointer;
-      font: inherit
-    }
-
-    button:focus-visible {
-      outline: 2px solid #1683ff;
-      outline-offset: 3px
-    }
-
-    button:disabled {
-      opacity: .5
-    }
-
-    p {
+      font: inherit;
       font-size: 12px;
-      color: #65686c;
-      line-height: 1.5
+      text-align: center;
+    }
+    button:hover { background: #eee; color: #111; }
+    button[aria-pressed="true"] { border-color: #888; background: #e8e8e8; }
+    button:focus-visible, input:focus-visible { outline: 2px solid #555; outline-offset: 2px; }
+    button:disabled { opacity: .4; cursor: default; }
+    #motion-status {
+      margin: 7px 12px 4px;
+    }
+    #hide-ui {
+      --switch-width: 72px;
+      --switch-height: 36px;
+      --switch-inset: 4px;
+      appearance: none;
+      position: fixed;
+      z-index: 3;
+      right: max(12px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom));
+      width: var(--switch-width);
+      transform: scale(0.7);
+      transform-origin: bottom right;
+      height: var(--switch-height);
+      min-height: var(--switch-height);
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: #bcbcbc;
+      box-shadow: inset 0 1px 3px #0002;
+      transition: background-color 180ms ease;
+    }
+    #hide-ui[aria-checked="true"] { background: #111; }
+    #hide-ui::after {
+      content: '';
+      position: absolute;
+      top: var(--switch-inset);
+      left: var(--switch-inset);
+      display: block;
+      width: calc(var(--switch-height) - 2 * var(--switch-inset));
+      height: calc(var(--switch-height) - 2 * var(--switch-inset));
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 4px #0003;
+      transform: translateX(0);
+      transition: transform 180ms ease;
+    }
+    #hide-ui[aria-checked="true"]::after {
+      transform: translateX(calc(var(--switch-width) - var(--switch-height)));
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #hide-ui, #hide-ui::after { transition: none; }
+    }
+    @media (max-width: 600px) {
+      .caption { top: 12px; left: 12px; font-size: 10px; }
+      .controls {
+        top: auto;
+        bottom: calc(64px + env(safe-area-inset-bottom));
+      }
+      .control-row { min-height: 20px; }
+      button { min-height: 20px; }
+    }
+
+    @media (max-height: 540px) and (min-width: 540px) {
+      .controls { top: 12px; bottom: auto; width: min(640px, calc(100vw - 24px)); display: grid; grid-template-columns: 1fr 1fr; }
+      .panel-title, #motion-status { grid-column: 1 / -1; }
+      .caption { display: none; }
     }
 
     #status {
@@ -102,19 +199,19 @@
 
 <body>
   <div id="stage"></div>
-  <div class="caption">OMI / INFLATED MOTION</div>
-  <div class="controls">
+  <div class="caption">Omi Motion Demo</div>
+  <div id="motion-panel" class="controls" aria-label="Inflated motion controls">
     <p id="motion-status" role="status">Enable motion, hold still to calibrate, then tilt your phone to deform the ring.</p>
-    <div class="buttons">
-      <button id="motion-enable" disabled aria-pressed="false">Enable Motion</button>
-      <button id="motion-calibrate" disabled>Calibrate</button>
-      <button id="playback" disabled aria-pressed="false">Start</button>
-      <button id="reset" disabled>Reset View</button>
-      <button id="toggle-skybox" disabled aria-pressed="false">Hide Skybox</button>
-      <button id="hide-ui" disabled title="Tap the scene or press Escape to show controls again">Hide UI</button>
-    </div>
+    <div class="control-row"><span>motion</span><button id="motion-enable" disabled aria-pressed="false">Enable Motion</button></div>
+    <div class="control-row"><span>neutralPosition</span><button id="motion-calibrate" disabled>Calibrate</button></div>
+    <div class="control-row"><label for="motion-strength">strength</label><div class="slider-control"><input id="motion-strength" type="range" min="0" max="2" step="0.05" value="0.8"><output for="motion-strength">0.80</output></div></div>
+    <div class="control-row"><span>animation</span><button id="playback" disabled aria-pressed="false">Start</button></div>
+    <div class="control-row"><span>skybox</span><button id="toggle-skybox" disabled aria-pressed="false">Hide Skybox</button></div>
+    <div class="control-row"><label for="skybox-brightness">brightness</label><div class="slider-control"><input id="skybox-brightness" type="range" min="0" max="3" step="0.05" value="1.5"><output for="skybox-brightness">1.50</output></div></div>
+    <div class="control-row"><label for="skybox-saturation">saturation</label><div class="slider-control"><input id="skybox-saturation" type="range" min="0" max="3" step="0.05" value="1.5"><output for="skybox-saturation">1.50</output></div></div>
+    <div class="control-row"><span>view</span><button id="reset" disabled>Reset View</button></div>
   </div>
-  </div>
+  <button id="hide-ui" disabled role="switch" aria-label="Show UI" aria-controls="motion-panel" aria-checked="true" title="Show / hide UI"></button>
   <div id="status" role="status">Loading 3D preview...</div>
   <script type="module">
     const status = document.getElementById('status');
@@ -337,14 +434,11 @@
       function setUIHidden(hidden) {
         uiHidden = hidden;
         uiControls.hidden = caption.hidden = hidden;
-        (hidden ? renderer.domElement : hideUI).focus({ preventScroll: true });
+        hideUI.setAttribute('aria-checked', String(!hidden));
       }
-      hideUI.addEventListener('click', () => setUIHidden(true));
-      renderer.domElement.addEventListener('click', () => {
-        if (uiHidden) setUIHidden(false);
-      });
+      hideUI.addEventListener('click', () => setUIHidden(!uiHidden));
       document.addEventListener('keydown', event => {
-        if (uiHidden && ['Escape', 'Enter', ' '].includes(event.key)) {
+        if (uiHidden && event.key === 'Escape') {
           event.preventDefault();
           setUIHidden(false);
         }
@@ -384,7 +478,7 @@
       const skyboxMotion = { target: new THREE.Vector2(), maxYaw: radians(4), maxPitch: radians(3), response: 6 };
       const holeImageMaterial = new THREE.ShaderMaterial({
         side: THREE.DoubleSide,
-        uniforms: { panorama: { value: null }, motionAngles: { value: new THREE.Vector2() } },
+        uniforms: { panorama: { value: null }, motionAngles: { value: new THREE.Vector2() }, brightness: { value: 1.5 }, saturation: { value: 1.5 } },
         vertexShader: `
           varying vec3 worldPoint;
           void main() {
@@ -396,6 +490,8 @@
         fragmentShader: `
           uniform sampler2D panorama;
           uniform vec2 motionAngles;
+          uniform float brightness;
+          uniform float saturation;
           varying vec3 worldPoint;
           void main() {
             vec3 direction = normalize(worldPoint - cameraPosition);
@@ -410,14 +506,14 @@
               atan(direction.z, direction.x) / 6.28318530718 + 0.5 + 0.05,
               asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5 + 0.02
             );
-            
+
             vec3 color = texture2D(panorama, uv).rgb;
 
             // 亮度：1.0 原始，0.5 变暗，2.0 变亮
-            float brightness = 1.5;
+
 
             // 饱和度：0.0 黑白，1.0 原始，1.5 更鲜艳
-            float saturation = 1.5;
+
 
             float gray = dot(color, vec3(0.2126, 0.7152, 0.0722));
             color = mix(vec3(gray), color, saturation);
@@ -429,6 +525,21 @@
           }
         `
       });
+      function bindSlider(id, update) {
+        const input = document.getElementById(id);
+        const output = input.parentElement.querySelector('output');
+        const sync = () => {
+          const value = Number(input.value);
+          output.value = value.toFixed(2);
+          input.style.setProperty('--fill', `${(value - Number(input.min)) / (Number(input.max) - Number(input.min)) * 100}%`);
+          update(value);
+        };
+        input.addEventListener('input', sync);
+        sync();
+      }
+      bindSlider('motion-strength', value => attraction.strength = value);
+      bindSlider('skybox-brightness', value => holeImageMaterial.uniforms.brightness.value = value);
+      bindSlider('skybox-saturation', value => holeImageMaterial.uniforms.saturation.value = value);
       const holeImageMesh = new THREE.Mesh(new THREE.CircleGeometry(95, 240), holeImageMaterial);
       holeImageMesh.position.set(-7, 3, 0);
       holeImageMesh.visible = false;
